@@ -8,7 +8,7 @@
     "email": "your.email@example.com"
   },
   "private": true,
-  "main": "src/electron.js",
+  "main": "public/electron.js",
   "dependencies": {
     "@tauri-apps/api": "^2.5.0",
     "@testing-library/dom": "^10.4.0",
