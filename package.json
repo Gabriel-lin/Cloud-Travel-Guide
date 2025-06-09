@@ -1,0 +1,87 @@
+{
+  "name": "react-echarts-electron-demo",
+  "version": "0.1.0",
+  "description": "A dynamic line chart application built with React and ECharts",
+  "homepage": "https://your-project-homepage.com",
+  "author": {
+    "name": "Your Name",
+    "email": "your.email@example.com"
+  },
+  "private": true,
+  "main": "src/electron.js",
+  "dependencies": {
+    "@tauri-apps/api": "^2.5.0",
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^13.5.0",
+    "echarts": "^5.6.0",
+    "echarts-for-react": "^3.0.2",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-scripts": "5.0.1",
+    "web-vitals": "^2.1.4"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject",
+    "electron": "electron .  --no-sandbox",
+    "electron-build": "electron-builder",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
+  },
+  "build": {
+    "appId": "com.example.dynamiclinechart",
+    "productName": "Dynamic Line Chart",
+    "directories": {
+      "output": "dist"
+    },
+    "mac": {
+      "category": "public.app-category.utilities"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "maintainer": "Your Name <your.email@example.com>"
+    },
+    "electronDownload": {
+      "cache": "~/.electron"
+    }
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "devDependencies": {
+    "electron": "^36.4.0",
+    "electron-builder": "^26.0.12"
+  },
+  "optionalDependencies": {
+    "fsevents": "^2.3.3"
+  }
+}
