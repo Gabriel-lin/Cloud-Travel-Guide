@@ -27,8 +27,8 @@
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
-    "electron": "electron .  --no-sandbox",
-    "electron-build": "electron-builder",
+    "electron": "electron . --no-sandbox",
+    "electron-build": "npm run build && electron-builder",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"
