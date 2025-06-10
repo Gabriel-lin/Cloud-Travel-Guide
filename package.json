@@ -1,11 +1,11 @@
 {
-  "name": "react-echarts-electron-demo",
+  "name": "cloud-travel-guide",
   "version": "0.1.0",
-  "description": "A dynamic line chart application built with React and ECharts",
+  "description": "A travel guide application built with React and Electron",
   "homepage": ".",
   "author": {
-    "name": "Your Name",
-    "email": "your.email@example.com"
+    "name": "gabriel lin",
+    "email": "2823283465@qq.com"
   },
   "private": true,
   "main": "public/electron.js",
@@ -34,8 +34,8 @@
     "tauri:build": "tauri build"
   },
   "build": {
-    "appId": "com.example.dynamiclinechart",
-    "productName": "Dynamic Line Chart",
+    "appId": "com.example.cloudtravelguide",
+    "productName": "Cloud Travel Guide",
     "directories": {
       "output": "dist"
     },

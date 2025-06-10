@@ -1,4 +1,4 @@
-name: Build and Package Electron App
+name: Build and Package Cloud Travel Guide
 
 on:
   push:
