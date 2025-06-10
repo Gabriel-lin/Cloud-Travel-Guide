@@ -1,4 +1,4 @@
-name: Build and Package Cloud Travel Guide
+name: Build and Package Cloud Travel Guide Frontend
 
 on:
   push:
@@ -22,6 +22,10 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: 22  # 使用的 Node.js 版本
+      
+      - name: switch to frontend
+        run: |
+          cd frontend
 
       - name: Install dependencies
         run: npm install

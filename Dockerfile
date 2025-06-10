@@ -1,21 +1,21 @@
-# 第一阶段：安装依赖
-FROM rust:latest as builder
+# Dockerfile
+FROM python:3.12-slim as backend
+WORKDIR /app/backend
+COPY backend/pyproject.toml .
+RUN pip install uv && uv pip install -r pyproject.toml
+COPY backend .
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 
-RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
-RUN apt-get install -y nodejs
-RUN npm install -g @tauri-apps/cli
+FROM python:3.12-slim as algorithms
+WORKDIR /app/algorithms
+COPY algorithms/pyproject.toml .
+RUN pip install uv && uv pip install -r pyproject.toml
+COPY algorithms .
+CMD ["python", "shortest_path.py"]
 
-WORKDIR /app
-COPY package.json package-lock.json ./
+FROM node:22 as frontend
+WORKDIR /app/frontend
+COPY frontend/package.json .
 RUN npm install
-
-# 第二阶段：构建应用
-FROM builder as build
-
-COPY . .
-RUN npm run tauri:build
-
-# 第三阶段：输出结果
-FROM alpine:latest as output
-
-COPY --from=build /app/src-tauri/target/release/bundle /bundle
+COPY frontend .
+CMD ["npm", "start"]
