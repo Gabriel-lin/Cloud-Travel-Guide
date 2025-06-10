@@ -9,6 +9,7 @@ function createWindow() {
       nodeIntegration: true,
       contextIsolation: false,
     },
+    title: "Cloud Travel Guide",
   });
 
   // 加载 React 应用
