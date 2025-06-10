@@ -27,6 +27,11 @@ jobs:
         run: |
           cd frontend
           npm install
+      
+      - name: Clean build directory
+        run: |
+          cd frontend
+          rm -rf build
 
       - name: Build and package Electron app
         run: |
