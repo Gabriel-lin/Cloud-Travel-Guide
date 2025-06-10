@@ -1,0 +1,11 @@
+# algorithms/pyproject.toml
+[project]
+name = "cloud-travel-guide-algorithms"
+version = "0.1.0"
+dependencies = [
+    "numpy",
+]
+
+[build-system]
+requires = ["uv"]
+build-backend = "uv.build"

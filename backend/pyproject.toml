@@ -1,0 +1,15 @@
+# backend/pyproject.toml
+[project]
+name = "cloud-travel-guide-backend"
+version = "0.1.0"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "psycopg2",
+    "passlib",
+    "python-multipart",
+]
+
+[build-system]
+requires = ["uv"]
+build-backend = "uv.build"

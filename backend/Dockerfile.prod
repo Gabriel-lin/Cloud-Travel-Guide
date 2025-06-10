@@ -1,0 +1,21 @@
+FROM python:3.12-slim
+
+# 安装 PostgreSQL 开发库
+RUN apt-get update && apt-get install -y libpq-dev gcc
+
+# 设置工作目录
+WORKDIR /app/backend
+
+# 安装 uv 和依赖
+RUN pip install --no-cache-dir uv
+COPY pyproject.toml .
+RUN uv pip install --system -r pyproject.toml
+
+# 复制代码
+COPY . .
+
+# 设置 PYTHONPATH
+ENV PYTHONPATH=/app
+
+# 启动 FastAPI 服务
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
