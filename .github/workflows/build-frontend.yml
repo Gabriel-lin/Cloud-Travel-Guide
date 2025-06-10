@@ -22,16 +22,16 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: 22  # 使用的 Node.js 版本
-      
-      - name: switch to frontend
-        run: |
-          cd frontend
 
       - name: Install dependencies
-        run: npm install
+        run: |
+          cd frontend
+          npm install
 
       - name: Build and package Electron app
-        run: npm run electron-build
+        run: |
+          cd frontend
+          npm run electron-build
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
