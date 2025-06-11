@@ -73,3 +73,6 @@ target/
 
 # 忽略所有 __pycache__ 文件夹
 **/__pycache__/
+
+# 忽略electron target
+win-unpacked
