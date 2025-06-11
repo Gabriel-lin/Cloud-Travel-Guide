@@ -1,0 +1,15 @@
+{
+  "version": "0.1.0",
+  "configurations": [
+    // {
+    //   "name": "Debug Main Process on windows",
+    //   "type": "node",
+    //   "request": "launch",
+    //   "cwd": "${workspaceFolder}",
+    //   "runtimeExecutable": "${workspaceFolder}/frontend/dist/win-unpacked/Cloud Travel Guide.exe",
+    //   "windows": {
+    //     "runtimeExecutable": "${workspaceFolder}/frontend/dist/win-unpacked/Cloud Travel Guide.exe"
+    //   }
+    // }
+  ]
+}
