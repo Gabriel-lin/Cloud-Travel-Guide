@@ -29,6 +29,7 @@ jobs:
           npm install
       
       - name: Clean build directory
+        shell: bash
         run: |
           cd frontend
           if [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
