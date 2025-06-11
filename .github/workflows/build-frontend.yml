@@ -8,9 +8,6 @@ on:
     branches:
       - main
 
-env:
-  CLEAN_COMMAND: ${{ runner.os == 'Windows' && 'Remove-Item -Recurse -Force build' || 'rm -rf build' }}
-
 jobs:
   build:
     runs-on: ${{ matrix.os }}
@@ -34,7 +31,11 @@ jobs:
       - name: Clean build directory
         run: |
           cd frontend
-          ${{ env.CLEAN_COMMAND }}
+          if (${{ runner.os }} -eq "Windows") {
+            Remove-Item -Recurse -Force build
+          } else {
+            rm -rf build
+          }
 
       - name: Build and package Electron app
         run: |
