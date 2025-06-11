@@ -31,11 +31,13 @@ jobs:
       - name: Clean build directory
         run: |
           cd frontend
-          if (${{ runner.os }} -eq "Windows") {
-            Remove-Item -Recurse -Force build
-          } else {
+          if [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
             rm -rf build
-          }
+          elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
+            rm -rf build
+          elif [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            Remove-Item -Recurse -Force build
+          fi
 
       - name: Build and package Electron app
         run: |
