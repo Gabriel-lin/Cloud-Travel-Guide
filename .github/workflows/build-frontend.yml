@@ -31,7 +31,11 @@ jobs:
       - name: Clean build directory
         run: |
           cd frontend
-          rm -rf build
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            Remove-Item -Recurse -Force build
+          else
+            rm -rf build
+          fi
 
       - name: Build and package Electron app
         run: |
