@@ -17,6 +17,8 @@
     "@testing-library/user-event": "^13.5.0",
     "echarts": "^5.6.0",
     "echarts-for-react": "^3.0.2",
+    "less": "^4.3.0",
+    "less-loader": "^12.3.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-scripts": "5.0.1",
