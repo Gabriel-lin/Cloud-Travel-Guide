@@ -31,3 +31,15 @@
 ### backend end
     * fastapi, uv, devcontainer, microservices
     * docker
+
+
+#### misc
+
+wsl2
+配置 VcXsrv
+    启动 VcXsrv。
+    在配置向导中，选择 "Multiple windows" 和 "Start no client"。
+    在 "Extra settings" 中，勾选 "Disable access control"。
+    完成配置并启动 X Server。
+
+export DISPLAY=192.168.1.100:0
