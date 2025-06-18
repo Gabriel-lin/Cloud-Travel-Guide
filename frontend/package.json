@@ -93,7 +93,6 @@
     "cross-env": "^7.0.3",
     "electron": "^36.4.0",
     "electron-builder": "^26.0.12",
-    "electron-is-dev": "^3.0.1",
     "less": "^4.3.0",
     "less-loader": "^12.3.0",
     "postcss": "^8.5.5",
