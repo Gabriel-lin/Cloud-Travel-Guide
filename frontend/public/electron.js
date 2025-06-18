@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const os = require("os");
+const isDev = require('electron-is-dev');
 
 let mainWindow;
 
@@ -11,19 +12,20 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
+      enableRemoteModule: true
     },
     title: "Cloud Travel Guide",
   });
 
-  // 加载 React 应用
+  // 根据开发环境加载不同的 URL
   mainWindow.loadURL(
-    process.env.NODE_ENV === 'development'
-      ? 'http://localhost:3000' // 开发环境
-      : `file://${path.join(__dirname, '../build/index.html')}` // 生产环境
+    isDev
+      ? 'http://localhost:3000'
+      : `file://${path.join(__dirname, '../build/index.html')}`
   );
 
-  // 打开开发者工具（可选）
-  if (process.env.NODE_ENV === 'development') {
+  // 开发模式下打开开发者工具
+  if (isDev) {
     mainWindow.webContents.openDevTools();
   }
 

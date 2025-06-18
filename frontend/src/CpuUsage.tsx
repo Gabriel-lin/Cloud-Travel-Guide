@@ -8,6 +8,7 @@ const ipcRenderer = window.require
 
 const CpuUsage = () => {
   const chartRef = useRef<HTMLDivElement>(null);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [cpuCount, setCpuCount] = useState(20);
   const [data, setData] = useState<Array<Array<[number, number]>>>(() => 
     Array.from({ length: 20 }, () => [])

@@ -1,5 +1,6 @@
 // const path = require("path");
 const CracoLessPlugin = require("craco-less");
+const path = require('path');
 
 // craco.config.js
 // module.exports = {
@@ -36,7 +37,20 @@ module.exports = {
       webpackConfig.externals = {
         electron: 'commonjs2 electron', // 排除 electron 模块
       };
+      webpackConfig.target = 'electron-renderer';
       return webpackConfig;
     },
   },
+  devServer: (devServerConfig) => {
+    devServerConfig.setupMiddlewares = (middlewares, devServer) => {
+      // 如果需要自定义中间件，可以在这里添加
+      return middlewares;
+    };
+
+    devServerConfig.headers = {
+      "Access-Control-Allow-Origin": "*"
+    };
+    devServerConfig.historyApiFallback = true;
+    return devServerConfig;
+  }
 };
