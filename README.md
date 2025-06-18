@@ -42,4 +42,5 @@ wsl2
     在 "Extra settings" 中，勾选 "Disable access control"。
     完成配置并启动 X Server。
 
+<!-- 192.168.18.220 -->
 export DISPLAY=192.168.1.100:0
