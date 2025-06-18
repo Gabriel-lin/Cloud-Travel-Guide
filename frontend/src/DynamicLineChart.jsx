@@ -43,7 +43,7 @@ const DynamicLineChart = () => {
   };
 
   return (
-    <div>
+    <div className='bg-blue-300'>
       <ReactECharts option={option} style={{ height: '400px', width: '100%' }} />
     </div>
   );
