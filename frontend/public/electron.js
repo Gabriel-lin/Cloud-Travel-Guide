@@ -1,7 +1,6 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
-const path = require('path');
+const { app, BrowserWindow, ipcMain } = require("electron");
+const path = require("path");
 const os = require("os");
-const isDev = require('electron-is-dev');
 
 let mainWindow;
 
@@ -12,20 +11,20 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
-      enableRemoteModule: true
+      enableRemoteModule: true,
     },
     title: "Cloud Travel Guide",
   });
 
   // 根据开发环境加载不同的 URL
   mainWindow.loadURL(
-    isDev
-      ? 'http://localhost:3000'
-      : `file://${path.join(__dirname, '../build/index.html')}`
+    process.env.NODE_ENV === "development"
+      ? "http://localhost:3000"
+      : `file://${path.join(__dirname, "../build/index.html")}`
   );
 
   // 开发模式下打开开发者工具
-  if (isDev) {
+  if (process.env.NODE_ENV === "development") {
     mainWindow.webContents.openDevTools();
   }
 
@@ -36,13 +35,13 @@ function createWindow() {
 
 app.whenReady().then(createWindow);
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") {
     app.quit();
   }
 });
 
-app.on('activate', () => {
+app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   }
