@@ -1,41 +1,58 @@
 {
   "name": "cloud-travel-guide",
   "version": "0.1.0",
-  "description": "A travel guide application built with React and Electron",
-  "homepage": ".",
+  "description": "A travel guide application built with Next.js and Electron",
   "author": {
     "name": "gabriel lin",
     "email": "2823283465@qq.com"
   },
   "private": true,
-  "main": "public/electron.js",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "next dev --turbopack",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "electron:dev": "concurrently -k \"cross-env BROWSER=none npm run dev\" \"npm run electron:start\"",
+    "electron:start": "wait-on tcp:3000 && cross-env NODE_ENV=development bash scripts/electron-start.sh",
+    "electron:build": "cross-env ELECTRON_BUILD=true next build && electron-builder -c.extraMetadata.main=electron/main.js",
+    "electron": "cross-env ELECTRON_BUILD=true next build && electron electron/main.js --no-sandbox"
+  },
   "dependencies": {
-    "@craco/craco": "^7.1.0",
     "@tauri-apps/api": "^2.5.0",
+    "d3": "^7.9.0",
+    "d3-flame-graph": "^4.1.3",
+    "echarts": "^5.6.0",
+    "echarts-for-react": "^3.0.2",
+    "next": "^16.2.6",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "recharts": "^2.15.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.0",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
-    "@testing-library/user-event": "^13.5.0",
-    "echarts": "^5.6.0",
-    "echarts-for-react": "^3.0.2",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0",
-    "react-scripts": "5.0.1",
-    "web-vitals": "^2.1.4"
-  },
-  "scripts": {
-    "start": "craco start",
-    "build": "craco build",
-    "test": "craco test",
-    "eject": "react-scripts eject",
-    "electron:serve": "concurrently -k \"cross-env BROWSER=none npm start\" \"npm run electron:start\"",
-    "electron:build": "npm run build && electron-builder -c.extraMetadata.main=build/main.js",
-    "electron:start": "wait-on tcp:3000 && electron . --no-sandbox",
-    "electron": "npm run build && electron . --no-sandbox",
-    "electron-build": "npm run build && electron-builder",
-    "tauri": "tauri",
-    "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "@types/d3": "^7.4.3",
+    "@types/node": "^22.15.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "electron": "^36.4.0",
+    "electron-builder": "^26.0.12",
+    "@eslint/eslintrc": "^3.3.1",
+    "eslint": "^9.28.0",
+    "eslint-config-next": "^16.2.6",
+    "jsdom": "^26.1.0",
+    "postcss": "^8.5.5",
+    "tailwindcss": "^4.3.0",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.0",
+    "wait-on": "^8.0.3"
   },
   "build": {
     "appId": "com.example.cloudtravelguide",
@@ -44,16 +61,19 @@
       "output": "dist"
     },
     "files": [
-      "build/**/*",
-      "public/electron.js"
+      "out/**/*",
+      "electron/**/*",
+      "package.json"
     ],
     "mac": {
+      "target": "universal",
       "category": "public.app-category.utilities"
     },
     "win": {
       "target": [
         "nsis",
-        "portable"
+        "portable",
+        "msi"
       ]
     },
     "linux": {
@@ -61,46 +81,10 @@
         "AppImage",
         "deb"
       ],
-      "maintainer": "Your Name <your.email@example.com>"
+      "maintainer": "gabriel lin <2823283465@qq.com>"
     },
     "electronDownload": {
       "cache": "~/.electron"
     }
-  },
-  "eslintConfig": {
-    "extends": [
-      "react-app",
-      "react-app/jest"
-    ]
-  },
-  "browserslist": {
-    "production": [
-      ">0.2%",
-      "not dead",
-      "not op_mini all"
-    ],
-    "development": [
-      "last 1 chrome version",
-      "last 1 firefox version",
-      "last 1 safari version"
-    ]
-  },
-  "devDependencies": {
-    "@bazel/bazelisk": "^1.26.0",
-    "autoprefixer": "^9.8.8",
-    "concurrently": "^9.1.2",
-    "craco-less": "^3.0.1",
-    "cross-env": "^7.0.3",
-    "electron": "^36.4.0",
-    "electron-builder": "^26.0.12",
-    "less": "^4.3.0",
-    "less-loader": "^12.3.0",
-    "postcss": "^8.5.5",
-    "postcss-import": "^16.1.0",
-    "tailwindcss": "npm:@tailwindcss/postcss7-compat@^2.2.17",
-    "wait-on": "^8.0.3"
-  },
-  "optionalDependencies": {
-    "fsevents": "^2.3.3"
   }
 }
