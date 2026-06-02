@@ -1,0 +1,41 @@
+appId: com.example.cloudtravelguide
+productName: Cloud Travel Guide
+copyright: Copyright © 2026 Cloud Travel Guide
+
+directories:
+  output: release
+  buildResources: build/resources
+
+files:
+  - out/**/*
+  - build/electron/**/*
+  - package.json
+  # 静态导出 + images.unoptimized，运行时不需要 Next 的 sharp 原生模块
+  - "!**/node_modules/@img/**"
+  - "!**/node_modules/sharp/**"
+
+extraMetadata:
+  main: build/electron/main.js
+  homepage: https://github.com/Gabriel-lin/Cloud-Travel-Guide
+
+asar: true
+
+mac:
+  category: public.app-category.utilities
+  target:
+    - target: dmg
+      # CI macos-latest 为 Apple Silicon；universal 会因 sharp 等原生依赖合并失败
+      arch: arm64
+
+win:
+  # 无 Authenticode 证书时关闭，避免下载 winCodeSign 并在解压 macOS 符号链接时因权限失败
+  signAndEditExecutable: false
+  target:
+    - nsis
+    - portable
+
+linux:
+  target:
+    - AppImage
+    - deb
+  maintainer: gabriel lin <2823283465@qq.com>

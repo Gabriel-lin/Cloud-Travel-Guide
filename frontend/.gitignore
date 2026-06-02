@@ -13,8 +13,14 @@
 /out/
 
 # production
-/dist
+/release
 /build
+!/build/resources
+/dist
+
+# electron (download cache / legacy compile output)
+/.electron/
+/~/
 
 # testing
 /coverage

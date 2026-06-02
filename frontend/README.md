@@ -40,37 +40,46 @@ npm run dev
 |------|------|
 | WSLg | Windows 11：`wsl --update` 后重启 WSL |
 | X Server | Windows 安装 VcXsrv，启动后 `export DISPLAY=$(grep -m1 nameserver /etc/resolv.conf \| awk '{print $2}'):0` |
-| Windows 终端 | 在 PowerShell 中 `cd frontend` 后执行 `npm run electron:dev` |
+| Windows 终端 | 在 PowerShell / Git Bash 中 `cd frontend` 后执行 `npm run electron:dev` |
 
-`npm run electron:start` 会优先使用 **WSLg**（`DISPLAY=:0`），不会误用 `resolv.conf` 里的 `8.8.8.8`。
-
-若曾在 `~/.zshrc` 里设置过 `DISPLAY=$(grep nameserver ...)`，请先 `unset DISPLAY` 再启动。
-
-仍失败时会打印上述提示。
+WSL 下请在本机 Windows 终端运行 `npm run electron:dev`；无图形环境时改用 `npm run dev`。
 
 ## Electron
 
+推荐 **Node 24**（见 `.nvmrc`）：
+
 ```bash
-# 开发：Next 开发服务器 + Electron 窗口（需图形环境）
-npm run electron:dev
-
-# 静态导出并本地运行 Electron
-npm run electron
-
-# 打包安装包（需先 static export）
-npm run electron:build
+nvm use 24
+npm install              # postinstall 仅下载 Electron 二进制
+npm run electron:dev     # Next(dev) + esbuild watch + Electron 窗口
 ```
 
-Electron 安装若超时，可设置镜像后重装：
+| 命令 | 说明 |
+|------|------|
+| `npm run dev` | 仅 Web（Turbopack） |
+| `npm run electron:build:main` | esbuild 打包主进程 → `build/electron/main.js` |
+| `npm run electron:typecheck` | 主进程 TypeScript 类型检查 |
+| `npm run electron:dev` | 桌面开发（Next Webpack + esbuild watch） |
+| `npm run electron:preview` | 静态导出 + 本地 Electron 预览 |
+| `npm run electron:build` | 静态导出 + electron-builder 打包 → `release/` |
+
+打包配置见 `electron-builder.yml`（与 `package.json` 分离，符合 electron-builder 官方建议）。
+
+开发时默认 **不打开 DevTools**；需要时在启动前设置 `ELECTRON_DEVTOOLS=1`。
+
+Electron 安装若超时，可设置镜像：
 
 ```bash
 export ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/
-export ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/
-npm install electron --save-dev
+npm install
 ```
 
 ## 目录
 
 - `src/app/` — App Router 页面与布局
 - `src/components/` — 客户端图表组件
-- `electron/main.js` — Electron 主进程
+- `electron/src/` — Electron 主进程源码（`main.ts`、`paths.ts`）
+- `electron/esbuild.mjs` — 主进程打包（输出 `build/electron/main.js`）
+- `build/electron/` — 主进程构建产物（gitignore）
+- `release/` — electron-builder 安装包输出（gitignore）
+- `electron-builder.yml` — 打包配置

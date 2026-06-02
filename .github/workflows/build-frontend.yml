@@ -8,46 +8,57 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      CI: true
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Configure electron-builder cache
+        shell: bash
+        run: echo "ELECTRON_BUILDER_CACHE=${RUNNER_TEMP}/electron-builder-cache" >> "$GITHUB_ENV"
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
-        working-directory: frontend
         run: npm ci
 
       - name: Lint
-        working-directory: frontend
         run: npm run lint
 
       - name: Test
-        working-directory: frontend
         run: npm test
 
       - name: Clean build output
         shell: bash
-        working-directory: frontend
-        run: rm -rf .next out dist
+        run: rm -rf .next out build release
 
       - name: Build and package Electron app
-        working-directory: frontend
         run: npm run electron:build
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
+        if: success()
         with:
           name: electron-build-${{ matrix.os }}
-          path: frontend/dist/
+          path: frontend/release/
+          if-no-files-found: error
