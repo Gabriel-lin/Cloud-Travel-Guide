@@ -1,10 +1,11 @@
-const { app, BrowserWindow } = require("electron");
-const path = require("path");
+import { app, BrowserWindow } from "electron";
+import { DEV_SERVER_URL, getProductionRendererIndexPath } from "./paths";
 
-function createWindow() {
+function createWindow(): void {
   const mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
+    show: false,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
@@ -14,14 +15,18 @@ function createWindow() {
 
   const isDev = process.env.NODE_ENV === "development";
 
-  mainWindow.loadURL(
+  mainWindow.once("ready-to-show", () => {
+    mainWindow.show();
+  });
+
+  void mainWindow.loadURL(
     isDev
-      ? "http://localhost:3000"
-      : `file://${path.join(__dirname, "../out/index.html")}`,
+      ? DEV_SERVER_URL
+      : `file://${getProductionRendererIndexPath()}`,
   );
 
-  if (isDev) {
-    mainWindow.webContents.openDevTools();
+  if (isDev && process.env.ELECTRON_DEVTOOLS === "1") {
+    mainWindow.webContents.openDevTools({ mode: "detach" });
   }
 }
 

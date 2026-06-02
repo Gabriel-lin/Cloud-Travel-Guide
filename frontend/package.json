@@ -2,23 +2,30 @@
   "name": "cloud-travel-guide",
   "version": "0.1.0",
   "description": "A travel guide application built with Next.js and Electron",
+  "homepage": "https://github.com/Gabriel-lin/Cloud-Travel-Guide",
   "author": {
     "name": "gabriel lin",
     "email": "2823283465@qq.com"
   },
   "private": true,
-  "main": "electron/main.js",
+  "main": "build/electron/main.js",
+  "engines": {
+    "node": ">=24.0.0"
+  },
   "scripts": {
+    "postinstall": "install-electron",
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
     "lint": "eslint src",
     "test": "vitest run",
     "test:watch": "vitest",
-    "electron:dev": "concurrently -k \"cross-env BROWSER=none npm run dev\" \"npm run electron:start\"",
-    "electron:start": "wait-on tcp:3000 && cross-env NODE_ENV=development bash scripts/electron-start.sh",
-    "electron:build": "cross-env ELECTRON_BUILD=true next build && electron-builder -c.extraMetadata.main=electron/main.js",
-    "electron": "cross-env ELECTRON_BUILD=true next build && electron electron/main.js --no-sandbox"
+    "electron:typecheck": "tsc -p electron/tsconfig.json",
+    "electron:build:main": "node electron/esbuild.mjs",
+    "electron:build:main:watch": "node electron/esbuild.mjs --watch",
+    "electron:dev": "npm run electron:build:main && concurrently -k -n next,main,electron -c blue,yellow,magenta \"cross-env BROWSER=none next dev --webpack -p 3000\" \"node electron/esbuild.mjs --watch\" \"wait-on tcp:127.0.0.1:3000 && cross-env NODE_ENV=development ELECTRON_NO_SANDBOX=1 electron build/electron/main.js --no-sandbox\"",
+    "electron:build": "cross-env NODE_ENV=production npm run electron:build:main && cross-env ELECTRON_BUILD=true next build && electron-builder --config electron-builder.yml --publish never",
+    "electron:preview": "cross-env NODE_ENV=production npm run electron:build:main && cross-env ELECTRON_BUILD=true next build && cross-env NODE_ENV=production electron build/electron/main.js --no-sandbox"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.5.0",
@@ -32,19 +39,20 @@
     "recharts": "^2.15.3"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3.3.1",
     "@tailwindcss/postcss": "^4.3.0",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
     "@types/d3": "^7.4.3",
-    "@types/node": "^22.15.0",
+    "@types/node": "^24.0.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "concurrently": "^9.1.2",
     "cross-env": "^7.0.3",
-    "electron": "^36.4.0",
-    "electron-builder": "^26.0.12",
-    "@eslint/eslintrc": "^3.3.1",
+    "electron": "^42.3.0",
+    "electron-builder": "^26.8.1",
+    "esbuild": "^0.25.12",
     "eslint": "^9.28.0",
     "eslint-config-next": "^16.2.6",
     "jsdom": "^26.1.0",
@@ -53,38 +61,5 @@
     "typescript": "^5.8.3",
     "vitest": "^3.2.0",
     "wait-on": "^8.0.3"
-  },
-  "build": {
-    "appId": "com.example.cloudtravelguide",
-    "productName": "Cloud Travel Guide",
-    "directories": {
-      "output": "dist"
-    },
-    "files": [
-      "out/**/*",
-      "electron/**/*",
-      "package.json"
-    ],
-    "mac": {
-      "target": "universal",
-      "category": "public.app-category.utilities"
-    },
-    "win": {
-      "target": [
-        "nsis",
-        "portable",
-        "msi"
-      ]
-    },
-    "linux": {
-      "target": [
-        "AppImage",
-        "deb"
-      ],
-      "maintainer": "gabriel lin <2823283465@qq.com>"
-    },
-    "electronDownload": {
-      "cache": "~/.electron"
-    }
   }
 }
