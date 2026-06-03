@@ -9,7 +9,7 @@ export function getPreloadPath(): string {
   return path.join(__dirname, "preload.js");
 }
 
-/** Static export entry after `ELECTRON_BUILD=true next build` */
-export function getProductionIndexPath(): string {
-  return path.join(app.getAppPath(), "out", "index.html");
+/** Next.js static export root (`out/`) after `ELECTRON_BUILD=true next build` */
+export function getStaticExportDir(): string {
+  return path.join(app.getAppPath(), "out");
 }

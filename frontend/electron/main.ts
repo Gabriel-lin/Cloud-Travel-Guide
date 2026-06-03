@@ -1,6 +1,13 @@
 import { app, BrowserWindow, shell } from "electron";
+import {
+  getProductionLoadUrl,
+  installAppProtocolHandler,
+  registerAppScheme,
+} from "./app-protocol";
 import { setDefaultApplicationMenu } from "./menu";
-import { DEV_SERVER_URL, getPreloadPath, getProductionIndexPath } from "./paths";
+import { DEV_SERVER_URL, getPreloadPath } from "./paths";
+
+registerAppScheme();
 
 /** 开发联调：未打包且非 production 时连接 Next dev server */
 const isDev = !app.isPackaged && process.env.NODE_ENV !== "production";
@@ -38,11 +45,14 @@ function createWindow(): void {
       mainWindow.webContents.openDevTools({ mode: "detach" });
     }
   } else {
-    void mainWindow.loadFile(getProductionIndexPath());
+    void mainWindow.loadURL(getProductionLoadUrl());
   }
 }
 
 void app.whenReady().then(() => {
+  if (!isDev) {
+    installAppProtocolHandler();
+  }
   setDefaultApplicationMenu();
   createWindow();
 });
