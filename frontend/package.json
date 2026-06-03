@@ -1,7 +1,7 @@
 {
   "name": "cloud-travel-guide",
   "version": "0.1.0",
-  "description": "A travel guide application built with Next.js and Electron",
+  "description": "Cloud Travel Guide — Next.js renderer with Electron desktop shell",
   "homepage": "https://github.com/Gabriel-lin/Cloud-Travel-Guide",
   "author": {
     "name": "gabriel lin",
@@ -10,55 +10,49 @@
   "private": true,
   "main": "build/electron/main.js",
   "engines": {
-    "node": ">=24.0.0"
+    "node": ">=22.0.0 <23.0.0"
   },
   "scripts": {
-    "postinstall": "install-electron",
-    "dev": "next dev --turbopack",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint src",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "electron:typecheck": "tsc -p electron/tsconfig.json",
-    "electron:build:main": "node electron/esbuild.mjs",
-    "electron:build:main:watch": "node electron/esbuild.mjs --watch",
-    "electron:dev": "npm run electron:build:main && concurrently -k -n next,main,electron -c blue,yellow,magenta \"cross-env BROWSER=none next dev --webpack -p 3000\" \"node electron/esbuild.mjs --watch\" \"wait-on tcp:127.0.0.1:3000 && cross-env NODE_ENV=development ELECTRON_NO_SANDBOX=1 electron build/electron/main.js --no-sandbox\"",
-    "electron:build": "cross-env NODE_ENV=production npm run electron:build:main && cross-env ELECTRON_BUILD=true next build && electron-builder --config electron-builder.yml --publish never",
-    "electron:preview": "cross-env NODE_ENV=production npm run electron:build:main && cross-env ELECTRON_BUILD=true next build && cross-env NODE_ENV=production electron build/electron/main.js --no-sandbox"
+    "dev": "concurrently -k npm:dev:next npm:dev:electron \"wait-on tcp:127.0.0.1:3000 && electron .\"",
+    "dev:next": "cross-env BROWSER=none next dev --webpack -p 3000",
+    "dev:electron": "cross-env NODE_ENV=development vite build --config vite.electron.config.ts --watch",
+    "preview": "cross-env NODE_ENV=production npm run build:electron && cross-env ELECTRON_BUILD=true next build && cross-env NODE_ENV=production electron .",
+    "build": "npm run build:frontend",
+    "build:backend": "docker compose -f ../docker-compose.prod.yml build backend",
+    "build:frontend": "npm run build:electron && cross-env ELECTRON_BUILD=true next build && npm run dist",
+    "build:electron": "cross-env NODE_ENV=production vite build --config vite.electron.config.ts",
+    "dist": "electron-builder --config electron-builder.yml --publish never",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.5.0",
-    "d3": "^7.9.0",
-    "d3-flame-graph": "^4.1.3",
-    "echarts": "^5.6.0",
-    "echarts-for-react": "^3.0.2",
     "next": "^16.2.6",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
-    "recharts": "^2.15.3"
+    "three": "^0.184.0"
   },
   "devDependencies": {
-    "@eslint/eslintrc": "^3.3.1",
     "@tailwindcss/postcss": "^4.3.0",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
-    "@types/d3": "^7.4.3",
-    "@types/node": "^24.0.0",
+    "@types/node": "^22.0.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
+    "@types/three": "^0.184.1",
+    "@vitejs/plugin-react": "^5.1.0",
     "concurrently": "^9.1.2",
     "cross-env": "^7.0.3",
-    "electron": "^42.3.0",
+    "electron": "^42.3.2",
     "electron-builder": "^26.8.1",
-    "esbuild": "^0.25.12",
     "eslint": "^9.28.0",
     "eslint-config-next": "^16.2.6",
     "jsdom": "^26.1.0",
     "postcss": "^8.5.5",
     "tailwindcss": "^4.3.0",
     "typescript": "^5.8.3",
+    "vite": "^6.3.5",
     "vitest": "^3.2.0",
     "wait-on": "^8.0.3"
   }

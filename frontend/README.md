@@ -1,85 +1,77 @@
 # Cloud Travel Guide — Frontend
 
-基于 **Next.js 16**、**React 19**、**Tailwind CSS 4** 的前端；可选 **Electron** 桌面壳。
+生产级桌面前端：**Next.js + React** 渲染层，**Electron** 壳层，**Vite** 构建主进程/预加载脚本，**Tailwind CSS v4** 样式，**electron-builder** 打包，**Vitest**（Vite）单元测试。
 
-## 开发
+## 架构
+
+| 层级 | 技术 | 说明 |
+|------|------|------|
+| 渲染进程 | Next.js App Router | 开发时连 `http://127.0.0.1:3000` |
+| 渲染页面 | Next.js 静态导出 | 输出到 `out/` |
+| 主进程 / Preload | Electron + Vite（`build:electron`） | 输出到 `build/electron/` |
+| 安装包 | electron-builder | 输出到 `dist/` |
+
+## 环境要求
+
+- Node.js **22.x**（见 `.nvmrc` / `.node-version`）
+- npm 10+
+
+## 安装
 
 ```bash
+cd frontend
 npm install
-npm run dev          # http://localhost:3000
 ```
 
-## 构建与检查
-
-```bash
-npm run build        # Next.js 生产构建
-npm run start        # 生产模式启动
-npm run lint
-npm test
-```
-
-## WSL 下开发说明
-
-在 **WSL2** 里直接跑 Electron 常会报错：
-
-`Missing X server or $DISPLAY`
-
-这是因为 Linux 子系统默认没有桌面环境，不是项目代码问题。
-
-**推荐做法（无需 Electron 窗口）：**
-
-```bash
-npm run dev
-```
-
-在 **Windows 浏览器** 打开 http://localhost:3000 即可调试页面。
-
-若必须用 Electron 窗口，请任选其一：
-
-| 方式 | 说明 |
-|------|------|
-| WSLg | Windows 11：`wsl --update` 后重启 WSL |
-| X Server | Windows 安装 VcXsrv，启动后 `export DISPLAY=$(grep -m1 nameserver /etc/resolv.conf \| awk '{print $2}'):0` |
-| Windows 终端 | 在 PowerShell / Git Bash 中 `cd frontend` 后执行 `npm run electron:dev` |
-
-WSL 下请在本机 Windows 终端运行 `npm run electron:dev`；无图形环境时改用 `npm run dev`。
-
-## Electron
-
-推荐 **Node 24**（见 `.nvmrc`）：
-
-```bash
-nvm use 24
-npm install              # postinstall 仅下载 Electron 二进制
-npm run electron:dev     # Next(dev) + esbuild watch + Electron 窗口
-```
-
-| 命令 | 说明 |
-|------|------|
-| `npm run dev` | 仅 Web（Turbopack） |
-| `npm run electron:build:main` | esbuild 打包主进程 → `build/electron/main.js` |
-| `npm run electron:typecheck` | 主进程 TypeScript 类型检查 |
-| `npm run electron:dev` | 桌面开发（Next Webpack + esbuild watch） |
-| `npm run electron:preview` | 静态导出 + 本地 Electron 预览 |
-| `npm run electron:build` | 静态导出 + electron-builder 打包 → `release/` |
-
-打包配置见 `electron-builder.yml`（与 `package.json` 分离，符合 electron-builder 官方建议）。
-
-开发时默认 **不打开 DevTools**；需要时在启动前设置 `ELECTRON_DEVTOOLS=1`。
-
-Electron 安装若超时，可设置镜像：
+若 Electron 二进制下载失败（国内网络），在 `frontend/.npmrc` 中取消注释 `electron_mirror`，或设置环境变量：
 
 ```bash
 export ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/
-npm install
 ```
 
-## 目录
+## 开发
 
-- `src/app/` — App Router 页面与布局
-- `src/components/` — 客户端图表组件
-- `electron/src/` — Electron 主进程源码（`main.ts`、`paths.ts`）
-- `electron/esbuild.mjs` — 主进程打包（输出 `build/electron/main.js`）
-- `build/electron/` — 主进程构建产物（gitignore）
-- `release/` — electron-builder 安装包输出（gitignore）
-- `electron-builder.yml` — 打包配置
+| 命令 | 说明 |
+|------|------|
+| `npm run dev` | Electron + Next 联调（Next、主进程 watch、Electron） |
+| `npm run dev:next` | 仅 Next |
+| `npm run dev:electron` | 仅主进程 watch |
+
+可选：打开 DevTools — `ELECTRON_DEVTOOLS=1 npm run dev`
+
+## 构建
+
+| 命令 | 说明 |
+|------|------|
+| `npm run build` | 后端 Docker 镜像 + 前端 Electron 安装包 |
+| `npm run build:backend` | `docker compose` 构建 FastAPI 镜像 |
+| `npm run build:electron` | 主进程 → `build/electron/` |
+| `npm run build:frontend` | `build:electron` + Next → `out/` + `dist` |
+| `npm run dist` | electron-builder 打包安装包 → `dist/` |
+| `npm run preview` | 本地预览生产壳层（不生成安装包） |
+
+可执行安装包输出目录：`dist/`。
+
+## 质量
+
+```bash
+npm run lint
+npm run typecheck
+npm test
+```
+
+## 目录结构
+
+```
+frontend/
+├── electron/           # 主进程、preload、路径工具
+├── build/electron/     # Vite 主进程产物（gitignore）
+├── out/                # Next 静态导出（gitignore）
+├── dist/               # electron-builder 安装包（gitignore）
+├── src/app/            # Next.js 页面与布局
+├── src/lib/            # 渲染进程工具（如 electron API 封装）
+├── vite.config.ts      # Vitest + 路径别名
+├── vite.electron.config.ts  # Vite 打包 Electron
+├── next.config.ts      # ELECTRON_BUILD 时静态导出
+└── electron-builder.yml
+```

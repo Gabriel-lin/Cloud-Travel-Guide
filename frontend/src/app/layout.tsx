@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Cloud Travel Guide",
-  description: "A travel guide application built with Next.js",
+  description: "智能旅行规划与导览桌面应用",
 };
 
 export default function RootLayout({
