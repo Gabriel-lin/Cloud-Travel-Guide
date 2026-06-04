@@ -8,6 +8,7 @@ const eslintConfig = [
       "out/**",
       "build/**",
       "dist/**",
+      "next-env.d.ts",
     ],
   },
   ...nextCoreWebVitals,

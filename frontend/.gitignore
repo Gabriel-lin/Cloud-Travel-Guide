@@ -1,9 +1,57 @@
+# =============================================================================
+# Frontend — Next.js + Electron + Vite + npm
+# =============================================================================
+
+# --- Dependencies ---
 node_modules/
+
+# --- Next.js ---
 .next/
 out/
+
+# --- Electron: Vite build output + electron-builder installers ---
 build/
 dist/
+win-unpacked/
+linux-unpacked/
+mac-unpacked/
+*.exe.blockmap
+*.dmg.blockmap
+*.pkg.blockmap
+*.AppImage
+
+# --- TypeScript incremental build ---
+*.tsbuildinfo
+
+# --- Test & coverage ---
+coverage/
+test-results/
+playwright-report/
+blob-report/
+.vitest/
+
+# --- Environment & secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Logs & tool caches ---
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.eslintcache
+.stylelintcache
+
+# --- OS ---
 .DS_Store
 Thumbs.db
-.env*.local
+
+# --- Deploy / monorepo tooling (optional) ---
+.vercel/
+.turbo/
+
+# --- Local editor overrides (project .vscode may be shared at repo root) ---
+.vscode/*
+!.vscode/extensions.json

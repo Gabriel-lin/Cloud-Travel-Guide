@@ -23,6 +23,30 @@ cd frontend
 npm install
 ```
 
+`npm install` 会通过 `prepare` 脚本自动安装 [Husky](https://typicode.github.io/husky/) Git 钩子（仓库根目录 `core.hooksPath` 指向 `frontend/.husky`）。克隆仓库后只需执行上述命令即可启用提交检查。
+
+### Git 提交规范
+
+提交信息须符合以下任一格式：
+
+```
+[feat] add map layer toggle
+[feat][ui] add map layer toggle
+[feat](ui) add map layer toggle
+[fix][electron] load scene on cold start
+```
+
+允许的 `type`：`feat`、`fix`、`chore`、`misc`、`docs`、`refactor`、`test`、`ci`、`build`、`perf`、`style`。
+
+可选 `scope`（填写时须在枚举内）：`ui`、`api`、`wasm`、`electron`、`build`、`ci`、`deps`、`config`、`docker`、`algo`、`db`、`test`。
+
+| 钩子 | 检查内容 |
+|------|----------|
+| `pre-commit` | 暂存 `frontend/` 时：ESLint（`lint-staged`）+ `typecheck`；暂存 `backend/` 时：Ruff、mypy、pytest（见 `backend/.pre-commit-config.yaml`） |
+| `commit-msg` | [commitlint](https://commitlint.js.org/) 校验提交说明（全仓库） |
+
+跳过钩子（仅紧急情况）：`git commit --no-verify`。
+
 若 Electron 二进制下载失败（国内网络），在 `frontend/.npmrc` 中取消注释 `electron_mirror`，或设置环境变量：
 
 ```bash

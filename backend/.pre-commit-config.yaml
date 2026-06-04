@@ -1,0 +1,36 @@
+# 由 frontend/.husky/pre-commit 在暂存 backend/ 文件时自动调用，无需单独 pre-commit install。
+# 手动执行（仓库根目录）: uv run --directory backend pre-commit run --config backend/.pre-commit-config.yaml
+
+default_language_version:
+  python: "3.12"
+
+repos:
+  - repo: local
+    hooks:
+      - id: backend-ruff-check
+        name: backend ruff check
+        entry: bash -lc "cd backend && uv run ruff check ."
+        language: system
+        pass_filenames: false
+        files: ^backend/
+
+      - id: backend-ruff-format
+        name: backend ruff format
+        entry: bash -lc "cd backend && uv run ruff format --check ."
+        language: system
+        pass_filenames: false
+        files: ^backend/
+
+      - id: backend-mypy
+        name: backend mypy
+        entry: bash -lc "uv run --directory backend mypy"
+        language: system
+        pass_filenames: false
+        files: ^backend/
+
+      - id: backend-pytest
+        name: backend pytest
+        entry: bash -lc "cd backend && uv run pytest -q"
+        language: system
+        pass_filenames: false
+        files: ^backend/

@@ -1,0 +1,16 @@
+#!/usr/bin/env sh
+REPO_ROOT="$(git rev-parse --show-toplevel)" || exit 1
+cd "$REPO_ROOT" || exit 1
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+status=0
+
+if echo "$staged" | grep -qE '^frontend/'; then
+  (cd frontend && npm run precommit) || status=1
+fi
+
+if echo "$staged" | grep -qE '^backend/'; then
+  uv run --directory backend pre-commit run --config backend/.pre-commit-config.yaml || status=1
+fi
+
+exit $status
