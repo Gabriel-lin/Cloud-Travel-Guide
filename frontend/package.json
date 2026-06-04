@@ -22,9 +22,14 @@
     "build:frontend": "npm run build:electron && cross-env ELECTRON_BUILD=true next build && npm run dist",
     "build:electron": "cross-env NODE_ENV=production vite build --config vite.electron.config.ts",
     "dist": "electron-builder --config electron-builder.yml --publish never",
-    "lint": "eslint .",
+    "prepare": "cd .. && husky frontend/.husky",
+    "precommit": "lint-staged && npm run typecheck",
+    "lint": "eslint . --no-warn-ignored",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit",
     "test": "vitest run"
+  },
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx,mjs,cjs}": "eslint --fix --max-warnings=0 --no-warn-ignored"
   },
   "dependencies": {
     "next": "^16.2.6",
@@ -33,6 +38,7 @@
     "three": "^0.184.0"
   },
   "devDependencies": {
+    "@commitlint/cli": "^21.0.2",
     "@tailwindcss/postcss": "^4.3.0",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/jest-dom": "^6.6.3",
@@ -48,7 +54,9 @@
     "electron-builder": "^26.8.1",
     "eslint": "^9.28.0",
     "eslint-config-next": "^16.2.6",
+    "husky": "^9.1.7",
     "jsdom": "^26.1.0",
+    "lint-staged": "^17.0.7",
     "postcss": "^8.5.5",
     "tailwindcss": "^4.3.0",
     "typescript": "^5.8.3",

@@ -1,15 +1,161 @@
-# backend/pyproject.toml
+# backend/pyproject.toml — Cloud Travel Guide API
 [project]
 name = "cloud-travel-guide-backend"
 version = "0.1.0"
-dependencies = [
-    "fastapi",
-    "uvicorn",
-    "psycopg2",
-    "passlib",
-    "python-multipart",
+description = "Cloud Travel Guide — FastAPI REST API"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "MIT" }
+authors = [
+    { name = "gabriel lin", email = "2823283465@qq.com" },
+]
+keywords = ["fastapi", "api", "travel", "postgresql", "uvicorn"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Typing :: Typed",
 ]
 
-[build-system]
-requires = ["uv"]
-build-backend = "uv.build"
+dependencies = [
+    "fastapi>=0.115.0,<1",
+    "uvicorn[standard]>=0.32.0,<1",
+    "pydantic>=2.10.0,<3",
+    "pydantic-settings>=2.6.0,<3",
+    "python-dotenv>=1.0.0,<2",
+    "python-multipart>=0.0.9,<1",
+    "email-validator>=2.2.0,<3",
+    "psycopg2-binary>=2.9.9,<3",
+    "passlib[bcrypt]>=1.7.4,<2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0,<9",
+    "pytest-asyncio>=0.24.0,<1",
+    "pytest-cov>=6.0.0,<7",
+    "httpx>=0.28.0,<1",
+    "httpx2>=2.0.0,<3",
+    "ruff>=0.9.0,<1",
+    "mypy>=1.14.0,<2",
+    "pre-commit>=4.0.0,<5",
+    "types-passlib>=1.7.7.20240819",
+]
+
+# ---------------------------------------------------------------------------
+# uv — 应用模式（非可安装包），脚本与默认开发依赖组
+# ---------------------------------------------------------------------------
+[tool.uv]
+package = false
+default-groups = ["dev"]
+
+# ---------------------------------------------------------------------------
+# Ruff — lint + format（替代 flake8 / isort / black）
+# ---------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["."]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "UP",     # pyupgrade
+    "B",      # flake8-bugbear
+    "ASYNC",  # async pitfalls
+    "FAST",   # FastAPI-specific
+    "N",      # pep8-naming
+    "SIM",    # simplify
+    "RUF",    # ruff-specific
+]
+ignore = [
+    "E501",   # line length — formatter handles wrapping
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]
+"**/tests/**" = ["S101"]
+"main.py" = ["B008", "FAST002"]
+"backend/main.py" = ["B008", "FAST002"]
+"services/auth.py" = ["B008"]
+"backend/services/auth.py" = ["B008"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = true
+
+# ---------------------------------------------------------------------------
+# mypy — 静态类型检查（PYTHONPATH 需包含仓库根目录以解析 backend.*）
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+mypy_path = [".."]
+explicit_package_bases = true
+namespace_packages = true
+packages = ["backend.db", "backend.models", "backend.services", "backend.utils"]
+exclude = ["^backend/main\\.py$"]
+warn_return_any = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+check_untyped_defs = true
+disallow_incomplete_defs = true
+pretty = true
+show_error_codes = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["passlib.*", "psycopg2.*"]
+ignore_missing_imports = true
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+
+# ---------------------------------------------------------------------------
+# pytest + coverage
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+pythonpath = ["..", "."]
+asyncio_mode = "auto"
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--cov=.",
+    "--cov-report=term-missing",
+    "--cov-fail-under=0",
+]
+markers = [
+    "unit: unit tests",
+    "integration: tests requiring external services",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning:passlib.*",
+    "ignore::starlette.exceptions.StarletteDeprecationWarning",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["."]
+omit = [
+    "tests/*",
+    ".venv/*",
+    "*/__init__.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]
+show_missing = true
+skip_covered = false

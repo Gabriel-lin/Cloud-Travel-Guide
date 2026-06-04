@@ -1,0 +1,65 @@
+# =============================================================================
+# Backend — FastAPI + uv + Python 3.12
+# =============================================================================
+
+# --- Virtual environments ---
+.venv/
+venv/
+.env/
+
+# --- uv / pip (lockfile uv.lock should remain committed) ---
+.uv/
+
+# --- Python bytecode & extensions ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyd
+.Python
+
+# --- Test, lint, type-check caches ---
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.hypothesis/
+
+# --- Coverage reports ---
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+*.lcov
+
+# --- Packaging / build artifacts (package = false; ignore if generated) ---
+*.egg
+*.egg-info/
+.eggs/
+dist/
+build/
+wheels/
+pip-wheel-metadata/
+*.manifest
+*.spec
+
+# --- Environment & secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Logs ---
+*.log
+uvicorn*.log
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Jupyter / notebooks (if added later) ---
+.ipynb_checkpoints/
+
+# --- pyenv / local version overrides (keep .python-version committed) ---
+.python-version.local
