@@ -3,10 +3,10 @@ import { describe, expect, it } from "vitest";
 import HomePage from "./page";
 
 describe("HomePage", () => {
-  it("renders the product title", () => {
+  it("renders the 3D globe section heading", () => {
     render(<HomePage />);
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
-      "云旅行导览",
+    expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent(
+      "3D 地球",
     );
   });
 });

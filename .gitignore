@@ -88,4 +88,5 @@ docker-compose.*.local.yml
 .cache/
 .turbo/
 .vercel/
+.codegraph/
 *.tsbuildinfo

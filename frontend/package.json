@@ -32,6 +32,7 @@
     "*.{js,jsx,ts,tsx,mjs,cjs}": "eslint --fix --max-warnings=0 --no-warn-ignored"
   },
   "dependencies": {
+    "3d-tiles-renderer": "^0.4.27",
     "next": "^16.2.6",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
