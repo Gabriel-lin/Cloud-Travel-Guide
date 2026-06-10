@@ -6,10 +6,10 @@ RUN apt-get update && apt-get install -y libpq-dev gcc
 # 设置工作目录
 WORKDIR /app/backend
 
-# 安装 uv 和依赖
+# 安装 uv 与生产依赖（锁定版本）
 RUN pip install --no-cache-dir uv
-COPY pyproject.toml .
-RUN uv pip install --system -r pyproject.toml
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project --system
 
 # 复制代码
 COPY . .

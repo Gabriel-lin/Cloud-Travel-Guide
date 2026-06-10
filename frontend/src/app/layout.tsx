@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Cloud Travel Guide",
-  description: "A travel guide application built with Next.js",
+  description: "智能旅行规划与导览桌面应用",
 };
 
 export default function RootLayout({
@@ -13,7 +13,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN">
-      <body className="min-h-screen bg-slate-50 text-slate-900 antialiased">
+      <body className="h-screen overflow-hidden bg-slate-950 text-slate-100 antialiased">
         {children}
       </body>
     </html>

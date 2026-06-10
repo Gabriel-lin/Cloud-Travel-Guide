@@ -1,90 +1,68 @@
 {
   "name": "cloud-travel-guide",
   "version": "0.1.0",
-  "description": "A travel guide application built with Next.js and Electron",
+  "description": "Cloud Travel Guide — Next.js renderer with Electron desktop shell",
+  "homepage": "https://github.com/Gabriel-lin/Cloud-Travel-Guide",
   "author": {
     "name": "gabriel lin",
     "email": "2823283465@qq.com"
   },
   "private": true,
-  "main": "electron/main.js",
+  "main": "build/electron/main.js",
+  "engines": {
+    "node": ">=22.0.0 <23.0.0"
+  },
   "scripts": {
-    "dev": "next dev --turbopack",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint src",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "electron:dev": "concurrently -k \"cross-env BROWSER=none npm run dev\" \"npm run electron:start\"",
-    "electron:start": "wait-on tcp:3000 && cross-env NODE_ENV=development bash scripts/electron-start.sh",
-    "electron:build": "cross-env ELECTRON_BUILD=true next build && electron-builder -c.extraMetadata.main=electron/main.js",
-    "electron": "cross-env ELECTRON_BUILD=true next build && electron electron/main.js --no-sandbox"
+    "dev": "concurrently -k npm:dev:next npm:dev:electron \"wait-on tcp:127.0.0.1:3000 && electron .\"",
+    "dev:next": "cross-env BROWSER=none next dev --webpack -p 3000",
+    "dev:electron": "cross-env NODE_ENV=development vite build --config vite.electron.config.ts --watch",
+    "preview": "cross-env NODE_ENV=production npm run build:electron && cross-env ELECTRON_BUILD=true next build && cross-env NODE_ENV=production electron .",
+    "build": "npm run build:frontend",
+    "build:backend": "docker compose -f ../docker-compose.prod.yml build backend",
+    "build:frontend": "npm run build:electron && cross-env ELECTRON_BUILD=true next build && npm run dist",
+    "build:electron": "cross-env NODE_ENV=production vite build --config vite.electron.config.ts",
+    "dist": "electron-builder --config electron-builder.yml --publish never",
+    "prepare": "cd .. && husky frontend/.husky",
+    "precommit": "lint-staged && npm run typecheck",
+    "lint": "eslint . --no-warn-ignored",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit",
+    "test": "vitest run"
+  },
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx,mjs,cjs}": "eslint --fix --max-warnings=0 --no-warn-ignored"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.5.0",
-    "d3": "^7.9.0",
-    "d3-flame-graph": "^4.1.3",
-    "echarts": "^5.6.0",
-    "echarts-for-react": "^3.0.2",
+    "3d-tiles-renderer": "^0.4.27",
     "next": "^16.2.6",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
-    "recharts": "^2.15.3"
+    "three": "^0.184.0"
   },
   "devDependencies": {
+    "@commitlint/cli": "^21.0.2",
     "@tailwindcss/postcss": "^4.3.0",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
-    "@types/d3": "^7.4.3",
-    "@types/node": "^22.15.0",
+    "@types/node": "^22.0.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
+    "@types/three": "^0.184.1",
+    "@vitejs/plugin-react": "^5.1.0",
     "concurrently": "^9.1.2",
     "cross-env": "^7.0.3",
-    "electron": "^36.4.0",
-    "electron-builder": "^26.0.12",
-    "@eslint/eslintrc": "^3.3.1",
+    "electron": "^42.3.2",
+    "electron-builder": "^26.8.1",
     "eslint": "^9.28.0",
     "eslint-config-next": "^16.2.6",
+    "husky": "^9.1.7",
     "jsdom": "^26.1.0",
+    "lint-staged": "^17.0.7",
     "postcss": "^8.5.5",
     "tailwindcss": "^4.3.0",
     "typescript": "^5.8.3",
+    "vite": "^6.3.5",
     "vitest": "^3.2.0",
     "wait-on": "^8.0.3"
-  },
-  "build": {
-    "appId": "com.example.cloudtravelguide",
-    "productName": "Cloud Travel Guide",
-    "directories": {
-      "output": "dist"
-    },
-    "files": [
-      "out/**/*",
-      "electron/**/*",
-      "package.json"
-    ],
-    "mac": {
-      "target": "universal",
-      "category": "public.app-category.utilities"
-    },
-    "win": {
-      "target": [
-        "nsis",
-        "portable",
-        "msi"
-      ]
-    },
-    "linux": {
-      "target": [
-        "AppImage",
-        "deb"
-      ],
-      "maintainer": "gabriel lin <2823283465@qq.com>"
-    },
-    "electronDownload": {
-      "cache": "~/.electron"
-    }
   }
 }

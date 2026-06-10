@@ -3,15 +3,16 @@ import type { NextConfig } from "next";
 const isElectronBuild = process.env.ELECTRON_BUILD === "true";
 
 const nextConfig: NextConfig = {
+  // Electron dev loads http://127.0.0.1:3000 — allow HMR / dev assets from that origin
+  allowedDevOrigins: ["127.0.0.1"],
   ...(isElectronBuild
     ? {
         output: "export",
         distDir: "out",
+        trailingSlash: true,
         images: { unoptimized: true },
       }
     : {}),
-  // Electron 通过 window.require 在客户端加载，无需 webpack externals
-  turbopack: {},
 };
 
 export default nextConfig;
