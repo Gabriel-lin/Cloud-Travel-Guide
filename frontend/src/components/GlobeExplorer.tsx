@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
-import { EARTH_RADIUS, Globe, vec3ToLonLat } from "@/lib/globe";
+import { EARTH_RADIUS, Globe } from "@/lib/globe";
 import { OrbitNavigationController } from "@/lib/navigation";
 import { SceneViewer } from "@/lib/viewer";
 
@@ -53,14 +53,28 @@ const PRESETS: readonly Preset[] = [
   { id: "everest", label: "珠穆朗玛峰", lat: 27.9881, lon: 86.925, altitude: 45000 },
 ];
 
+/** 与默认 cameraPosition [0, 0.6R, 2.6R] 对应的海拔高度（米）。 */
+const INITIAL_VIEW_ALTITUDE =
+  Math.hypot(0, EARTH_RADIUS * 0.6, EARTH_RADIUS * 2.6) - EARTH_RADIUS;
+
+export const CHENGDU_CENTER = {
+  lat: 30.5728,
+  lon: 104.0668,
+} as const;
+
 export type GlobeExplorerProps = {
   className?: string;
+  /** 初始相机对准的经纬度；高度沿用默认视距。 */
+  initialCenter?: { lat: number; lon: number };
 };
 
 /**
  * 3D 地球 + 动态地形 Demo(独立组件,无需 API Key)。
  */
-export function GlobeExplorer({ className }: GlobeExplorerProps) {
+export function GlobeExplorer({
+  className,
+  initialCenter = CHENGDU_CENTER,
+}: GlobeExplorerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<SceneViewer | null>(null);
   const globeRef = useRef<Globe | null>(null);
@@ -124,15 +138,14 @@ export function GlobeExplorer({ className }: GlobeExplorerProps) {
     globeRef.current = globe;
     viewer.addUpdatable(globe);
 
-    const { lat, lon } = vec3ToLonLat(viewer.camera.position);
+    globe.flyTo(initialCenter.lat, initialCenter.lon, INITIAL_VIEW_ALTITUDE);
     const { minDistance } = globe.placeOrbitTargetAt(
-      lat,
-      lon,
+      initialCenter.lat,
+      initialCenter.lon,
       orbitTargetRef.current,
     );
     controls.target.copy(orbitTargetRef.current);
     controls.minDistance = minDistance;
-    viewer.camera.lookAt(orbitTargetRef.current);
 
     viewer.addRenderCallback(() => {
       const g = globeRef.current;
@@ -168,7 +181,7 @@ export function GlobeExplorer({ className }: GlobeExplorerProps) {
       navRef.current = null;
       setViewHandles({ camera: null, controls: null });
     };
-  }, []);
+  }, [initialCenter.lat, initialCenter.lon]);
 
   const handlePreset = useCallback((preset: Preset) => {
     const globe = globeRef.current;
@@ -200,7 +213,7 @@ export function GlobeExplorer({ className }: GlobeExplorerProps) {
                 key={preset.id}
                 type="button"
                 onClick={() => handlePreset(preset)}
-                className="rounded-full bg-slate-900/70 px-3 py-1 text-xs font-medium text-slate-200 backdrop-blur transition hover:bg-slate-900/90"
+                className="rounded-full bg-surface-900/70 px-3 py-1 text-xs font-medium text-ink-200 backdrop-blur ring-1 ring-brand-500/10 transition hover:bg-surface-900/90"
               >
                 {preset.label}
               </button>
@@ -214,8 +227,8 @@ export function GlobeExplorer({ className }: GlobeExplorerProps) {
                 onClick={() => handleLayer(layer)}
                 className={`rounded-md px-2.5 py-1 text-[11px] font-medium backdrop-blur transition ${
                   activeLayer === layer.id
-                    ? "bg-brand-600 text-white"
-                    : "bg-slate-800/70 text-slate-300 hover:bg-slate-800/90"
+                    ? "bg-brand-600 text-ink-100"
+                    : "bg-surface-800/70 text-ink-300 hover:bg-surface-800/90"
                 }`}
               >
                 {layer.label}
@@ -225,18 +238,18 @@ export function GlobeExplorer({ className }: GlobeExplorerProps) {
         </div>
 
         <div className="absolute right-3 top-3 space-y-1 text-right">
-          <div className="rounded-lg bg-slate-900/70 px-3 py-2 text-xs text-slate-300 backdrop-blur">
+          <div className="rounded-lg bg-surface-900/70 px-3 py-2 text-xs text-ink-300 backdrop-blur ring-1 ring-brand-500/10">
             左键旋转 · 滚轮缩放 · 右键平移 · 右下角拖动视角球
           </div>
           {coords ? (
-            <div className="rounded-lg bg-slate-900/70 px-3 py-2 font-mono text-[11px] text-slate-200 backdrop-blur">
+            <div className="rounded-lg bg-surface-900/70 px-3 py-2 font-mono text-[11px] text-ink-200 backdrop-blur ring-1 ring-brand-500/10">
               {coords.lat.toFixed(3)}°, {coords.lon.toFixed(3)}°
               <br />
               高度 {formatAlt(coords.alt)}
             </div>
           ) : null}
           {streaming ? (
-            <div className="rounded-lg bg-brand-600/80 px-3 py-1 text-[11px] text-white backdrop-blur">
+            <div className="rounded-lg bg-brand-600/80 px-3 py-1 text-[11px] text-ink-100 backdrop-blur">
               ● 动态加载地形中…
             </div>
           ) : null}
@@ -249,7 +262,7 @@ export function GlobeExplorer({ className }: GlobeExplorerProps) {
         />
 
         {attribution ? (
-          <div className="absolute bottom-2 left-2 right-32 truncate rounded bg-black/50 px-2 py-1 text-[10px] text-slate-300 backdrop-blur">
+          <div className="absolute bottom-2 left-2 right-32 truncate rounded bg-surface-950/60 px-2 py-1 text-[10px] text-ink-400 backdrop-blur">
             {attribution}
           </div>
         ) : null}

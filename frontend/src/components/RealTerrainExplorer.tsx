@@ -147,8 +147,8 @@ export function RealTerrainExplorer({ className }: RealTerrainExplorerProps) {
             onClick={() => handlePreset(preset)}
             className={`rounded-full px-3 py-1 text-xs font-medium backdrop-blur transition ${
               activePreset === preset.id
-                ? "bg-brand-600 text-white"
-                : "bg-slate-900/60 text-slate-200 hover:bg-slate-900/80"
+                ? "bg-brand-600 text-ink-100"
+                : "bg-surface-900/60 text-ink-200 hover:bg-surface-900/80"
             }`}
           >
             {preset.label}
@@ -156,20 +156,20 @@ export function RealTerrainExplorer({ className }: RealTerrainExplorerProps) {
         ))}
       </div>
 
-      <div className="pointer-events-none absolute right-3 top-3 rounded-lg bg-slate-900/60 px-3 py-2 text-xs text-slate-300 backdrop-blur">
+      <div className="pointer-events-none absolute right-3 top-3 rounded-lg bg-surface-900/60 px-3 py-2 text-xs text-ink-300 backdrop-blur ring-1 ring-brand-500/10">
         免费 · 无需 Key · 拖拽旋转 / 滚轮缩放
       </div>
 
       {status === "loading" ? (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <span className="rounded-lg bg-slate-900/70 px-4 py-2 text-sm text-slate-100 backdrop-blur">
+          <span className="rounded-lg bg-surface-900/70 px-4 py-2 text-sm text-ink-100 backdrop-blur ring-1 ring-brand-500/10">
             正在加载真实地形…
           </span>
         </div>
       ) : null}
 
       {attribution ? (
-        <div className="pointer-events-none absolute bottom-2 left-2 right-2 truncate rounded bg-black/50 px-2 py-1 text-[10px] text-slate-300">
+        <div className="pointer-events-none absolute bottom-2 left-2 right-2 truncate rounded bg-surface-950/60 px-2 py-1 text-[10px] text-ink-400">
           {attribution}
         </div>
       ) : null}

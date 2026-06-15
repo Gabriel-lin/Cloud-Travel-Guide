@@ -110,13 +110,13 @@ export function Tiles3DExplorer({ className, apiKey }: Tiles3DExplorerProps) {
   if (!started) {
     return (
       <div
-        className={`flex flex-col items-center justify-center gap-4 bg-slate-900 p-8 text-center ${className ?? ""}`}
+        className={`flex flex-col items-center justify-center gap-4 bg-surface-900 p-8 text-center ${className ?? ""}`}
       >
         <div className="max-w-md space-y-3">
-          <h3 className="text-lg font-semibold text-slate-100">
+          <h3 className="text-lg font-semibold text-ink-100">
             实景三维导览 Demo
           </h3>
-          <p className="text-sm text-slate-400">
+          <p className="text-sm text-ink-400">
             输入 Google Maps Platform API Key 以加载全球实景三维(Photorealistic 3D
             Tiles)。需在 Google Cloud 控制台启用 <span className="font-mono">Map Tiles API</span>。
           </p>
@@ -128,13 +128,13 @@ export function Tiles3DExplorer({ className, apiKey }: Tiles3DExplorerProps) {
             onChange={(e) => setKeyInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleLoad()}
             placeholder="粘贴 Google Maps API Key"
-            className="flex-1 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 outline-none focus:border-brand-500"
+            className="flex-1 rounded-lg border border-surface-700 bg-surface-800 px-3 py-2 text-sm text-ink-100 outline-none focus:border-brand-500"
           />
           <button
             type="button"
             onClick={handleLoad}
             disabled={!keyInput.trim()}
-            className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
+            className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-ink-100 disabled:opacity-40"
           >
             加载
           </button>
@@ -156,8 +156,8 @@ export function Tiles3DExplorer({ className, apiKey }: Tiles3DExplorerProps) {
             onClick={() => handlePreset(preset)}
             className={`rounded-full px-3 py-1 text-xs font-medium backdrop-blur transition ${
               activePreset === preset.id
-                ? "bg-brand-600 text-white"
-                : "bg-slate-900/60 text-slate-200 hover:bg-slate-900/80"
+                ? "bg-brand-600 text-ink-100"
+                : "bg-surface-900/60 text-ink-200 hover:bg-surface-900/80"
             }`}
           >
             {preset.label}
@@ -166,13 +166,13 @@ export function Tiles3DExplorer({ className, apiKey }: Tiles3DExplorerProps) {
       </div>
 
       {/* 操作提示 */}
-      <div className="pointer-events-none absolute right-3 top-3 rounded-lg bg-slate-900/60 px-3 py-2 text-xs text-slate-300 backdrop-blur">
+      <div className="pointer-events-none absolute right-3 top-3 rounded-lg bg-surface-900/60 px-3 py-2 text-xs text-ink-300 backdrop-blur ring-1 ring-brand-500/10">
         拖拽旋转 · 滚轮缩放 · 右键平移
       </div>
 
       {/* 数据归属(Google 使用条款要求展示) */}
       {attributions ? (
-        <div className="pointer-events-none absolute bottom-2 left-2 right-2 truncate rounded bg-black/50 px-2 py-1 text-[10px] text-slate-300">
+        <div className="pointer-events-none absolute bottom-2 left-2 right-2 truncate rounded bg-surface-950/60 px-2 py-1 text-[10px] text-ink-400">
           {attributions}
         </div>
       ) : null}
