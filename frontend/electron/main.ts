@@ -4,8 +4,10 @@ import {
   installAppProtocolHandler,
   registerAppScheme,
 } from "./app-protocol";
-import { setDefaultApplicationMenu } from "./menu";
+import { getInitialBackgroundColor } from "./native-chrome";
 import { DEV_SERVER_URL, getPreloadPath } from "./paths";
+import { getThemeState, initThemeBridge, pushThemeStateToWindow } from "./theme";
+import { initLocaleBridge, pushLocaleStateToWindow } from "./locale";
 
 registerAppScheme();
 
@@ -13,12 +15,15 @@ registerAppScheme();
 const isDev = !app.isPackaged && process.env.NODE_ENV !== "production";
 
 function createWindow(): void {
+  const { resolved } = getThemeState();
+
   const mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 960,
     minHeight: 640,
     show: false,
+    backgroundColor: getInitialBackgroundColor(resolved),
     webPreferences: {
       preload: getPreloadPath(),
       contextIsolation: true,
@@ -30,6 +35,11 @@ function createWindow(): void {
 
   mainWindow.once("ready-to-show", () => {
     mainWindow.show();
+  });
+
+  mainWindow.webContents.on("did-finish-load", () => {
+    pushThemeStateToWindow(mainWindow);
+    pushLocaleStateToWindow(mainWindow);
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -50,10 +60,11 @@ function createWindow(): void {
 }
 
 void app.whenReady().then(() => {
+  initThemeBridge();
+  initLocaleBridge();
   if (!isDev) {
     installAppProtocolHandler();
   }
-  setDefaultApplicationMenu();
   createWindow();
 });
 

@@ -1,5 +1,9 @@
 import { useSyncExternalStore } from "react";
 
+import type { ElectronLocaleAPI, ElectronThemeAPI } from "../../electron/preload";
+import type { AppLocale, LocaleState } from "@/lib/locale";
+import type { ThemePreference, ThemeState } from "@/lib/theme";
+
 export type ElectronAPI = {
   platform: NodeJS.Platform;
   isElectron: true;
@@ -8,6 +12,8 @@ export type ElectronAPI = {
     chrome: string;
     electron: string;
   };
+  theme: ElectronThemeAPI;
+  locale: ElectronLocaleAPI;
 };
 
 declare global {
@@ -25,6 +31,14 @@ export function getElectronAPI(): ElectronAPI | null {
     return null;
   }
   return window.electronAPI;
+}
+
+export function getElectronThemeAPI(): ElectronThemeAPI | null {
+  return getElectronAPI()?.theme ?? null;
+}
+
+export function getElectronLocaleAPI(): ElectronLocaleAPI | null {
+  return getElectronAPI()?.locale ?? null;
 }
 
 export type ElectronRuntimeSnapshot = {
@@ -79,5 +93,7 @@ export function useElectronRuntime(): ElectronRuntimeSnapshot {
     () => SSR_SNAPSHOT,
   );
 }
+
+export type { ThemePreference, ThemeState };
 
 export { SSR_SNAPSHOT };
