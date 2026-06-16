@@ -1,0 +1,44 @@
+{
+  "brand": {
+    "title": "Cloud Travel",
+    "subtitle": "Smart travel guide",
+    "tooltip": "Cloud Travel Guide"
+  },
+  "explore": {
+    "label": "Explore",
+    "description": "3D globe and terrain browsing",
+    "pageTitle": "3D Globe · Dynamic Terrain",
+    "pageDescription": "Rotate, zoom, and browse global terrain and imagery."
+  },
+  "routes": {
+    "label": "Routes",
+    "description": "Scenic and cultural itineraries",
+    "pageTitle": "Recommended Routes",
+    "pageDescription": "Curated natural and cultural travel routes."
+  },
+  "plan": {
+    "label": "Plan",
+    "description": "Custom trips and schedules",
+    "pageTitle": "Trip Planning",
+    "pageDescription": "Create and manage your travel schedules and routes."
+  },
+  "saved": {
+    "label": "Saved",
+    "description": "Saved places and routes",
+    "pageTitle": "Saved",
+    "pageDescription": "Quick access to saved places, routes, and trips."
+  },
+  "profile": {
+    "label": "Profile",
+    "description": "Preferences and account",
+    "pageTitle": "Profile",
+    "pageDescription": "Manage account info and travel preferences."
+  },
+  "settings": {
+    "label": "Settings",
+    "description": "Theme, language, and app config",
+    "pageTitle": "Settings",
+    "pageDescription": "Theme, language, map, and display preferences."
+  },
+  "groupLabel": "Navigation"
+}

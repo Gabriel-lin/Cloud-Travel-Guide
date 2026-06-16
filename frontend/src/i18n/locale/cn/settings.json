@@ -1,0 +1,28 @@
+{
+  "pageTitle": "应用设置",
+  "pageDescription": "主题、语言、地图与显示相关配置。",
+  "theme": {
+    "label": "外观主题",
+    "descriptionBrowser": "选择亮色、暗夜或跟随系统外观",
+    "descriptionDesktop": "通过桌面端接口同步系统外观与应用主题",
+    "systemHint": "系统当前为{mode}模式",
+    "light": "亮色",
+    "dark": "暗夜",
+    "system": "系统",
+    "modeLight": "亮色",
+    "modeDark": "暗夜"
+  },
+  "terrain": {
+    "label": "动态地形加载",
+    "description": "靠近地表时自动加载高程瓦片"
+  },
+  "reduceMotion": {
+    "label": "减少动效",
+    "description": "降低界面与地球飞行动画强度"
+  },
+  "language": {
+    "label": "界面语言",
+    "descriptionBrowser": "选择应用界面显示语言",
+    "descriptionDesktop": "通过桌面端接口同步应用语言"
+  }
+}

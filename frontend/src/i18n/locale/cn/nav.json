@@ -1,0 +1,44 @@
+{
+  "brand": {
+    "title": "Cloud Travel",
+    "subtitle": "智能旅行导览",
+    "tooltip": "Cloud Travel Guide"
+  },
+  "explore": {
+    "label": "探索",
+    "description": "3D 地球与实景浏览",
+    "pageTitle": "3D 地球 · 动态地形",
+    "pageDescription": "旋转、缩放并浏览全球动态地形与影像。"
+  },
+  "routes": {
+    "label": "推荐路线",
+    "description": "著名美景与人文经典线路",
+    "pageTitle": "推荐路线",
+    "pageDescription": "精选著名自然景观与人文经典旅行线路。"
+  },
+  "plan": {
+    "label": "行程规划",
+    "description": "自定义旅游路线与日程",
+    "pageTitle": "行程规划",
+    "pageDescription": "创建与管理你的专属旅行日程与路线。"
+  },
+  "saved": {
+    "label": "收藏夹",
+    "description": "已保存的地点与路线",
+    "pageTitle": "收藏夹",
+    "pageDescription": "快速访问已保存的地点、路线与行程。"
+  },
+  "profile": {
+    "label": "个人资料",
+    "description": "偏好与账户信息",
+    "pageTitle": "个人资料",
+    "pageDescription": "管理账户信息与旅行偏好。"
+  },
+  "settings": {
+    "label": "应用设置",
+    "description": "主题、语言与主体配置",
+    "pageTitle": "应用设置",
+    "pageDescription": "主题、语言、地图与显示相关配置。"
+  },
+  "groupLabel": "导航"
+}

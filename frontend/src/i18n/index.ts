@@ -1,7 +1,7 @@
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
 
-import { i18nResources } from "@/i18n/messages";
+import { i18nResources } from "@/i18n/locale";
 import { DEFAULT_APP_LOCALE } from "@/lib/locale";
 
 void i18n.use(initReactI18next).init({

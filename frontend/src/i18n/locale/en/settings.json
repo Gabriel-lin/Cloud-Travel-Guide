@@ -1,0 +1,28 @@
+{
+  "pageTitle": "Settings",
+  "pageDescription": "Theme, language, map, and display preferences.",
+  "theme": {
+    "label": "Appearance",
+    "descriptionBrowser": "Choose light, dark, or match system appearance",
+    "descriptionDesktop": "Sync system appearance and app theme via desktop APIs",
+    "systemHint": "System is currently in {mode} mode",
+    "light": "Light",
+    "dark": "Dark",
+    "system": "System",
+    "modeLight": "light",
+    "modeDark": "dark"
+  },
+  "terrain": {
+    "label": "Dynamic terrain",
+    "description": "Load elevation tiles automatically when near the surface"
+  },
+  "reduceMotion": {
+    "label": "Reduce motion",
+    "description": "Lower UI and globe fly-through animation intensity"
+  },
+  "language": {
+    "label": "Language",
+    "descriptionBrowser": "Choose the interface display language",
+    "descriptionDesktop": "Sync app language via desktop APIs"
+  }
+}
