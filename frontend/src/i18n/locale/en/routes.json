@@ -1,0 +1,17 @@
+{
+  "silkRoad": {
+    "title": "Silk Road",
+    "region": "Central Asia · China",
+    "summary": "Ancient trade routes, desert cities, and cross-cultural heritage."
+  },
+  "sichuanTibet": {
+    "title": "Sichuan–Tibet South Route",
+    "region": "Southwest China",
+    "summary": "High-altitude peaks, Tibetan culture, and iconic overland scenery."
+  },
+  "mediterranean": {
+    "title": "Mediterranean Circuit",
+    "region": "Europe · North Africa",
+    "summary": "Coastal towns, Renaissance heritage, and slow Mediterranean travel."
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "silkRoad": {
+    "title": "丝绸之路",
+    "region": "中亚 · 中国",
+    "summary": "千年商道与人文遗迹，沙漠、古城与多元文化交汇。"
+  },
+  "sichuanTibet": {
+    "title": "川藏南线",
+    "region": "中国西南",
+    "summary": "高原雪山、藏地人文与极致地貌的经典自驾路线。"
+  },
+  "mediterranean": {
+    "title": "环地中海",
+    "region": "欧洲 · 北非",
+    "summary": "碧海古城、文艺复兴遗产与地中海沿岸慢旅行。"
+  }
+}

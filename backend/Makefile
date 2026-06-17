@@ -1,12 +1,14 @@
 # Backend tasks — run from backend/ (Git Bash / WSL / Linux)
 # Windows PowerShell: use equivalent `uv run ...` commands in README.md
 
-.PHONY: dev serve lint fmt typecheck test check sync
+.PHONY: dev serve lint fmt typecheck test check sync migrate
 
 dev:
+	uv run alembic upgrade head
 	uv run uvicorn main:app --reload --host 127.0.0.1 --port 8000
 
 serve:
+	uv run alembic upgrade head
 	uv run uvicorn main:app --host 0.0.0.0 --port 8000
 
 lint:
@@ -22,6 +24,9 @@ test:
 	uv run pytest
 
 check: lint typecheck test
+
+migrate:
+	uv run alembic upgrade head
 
 sync:
 	uv sync

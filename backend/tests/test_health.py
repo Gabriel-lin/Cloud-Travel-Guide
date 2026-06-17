@@ -1,4 +1,4 @@
-"""Smoke tests for the FastAPI application."""
+"""Legacy smoke tests — see test_auth.py for application coverage."""
 
 from fastapi.testclient import TestClient
 
