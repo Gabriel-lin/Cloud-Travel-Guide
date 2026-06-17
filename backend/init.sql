@@ -1,6 +1,2 @@
--- backend/init.sql
-CREATE TABLE users (
-    id SERIAL PRIMARY KEY,
-    username VARCHAR(50) UNIQUE NOT NULL,
-    password_hash VARCHAR(255) NOT NULL
-);
+# Alembic is the source of truth for schema management.
+# Run: uv run alembic upgrade head

@@ -1,0 +1,7 @@
+{
+  "gettingStarted": "开始规划",
+  "intro": "行程规划模块将支持：",
+  "featureDayRoute": "按天数与目的地生成路线草案",
+  "featureMapMarkers": "在地球上标注途经点与停留时间",
+  "featureExport": "导出与分享行程单"
+}

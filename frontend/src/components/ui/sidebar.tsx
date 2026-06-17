@@ -314,7 +314,7 @@ function SidebarCollapseTrigger({
       title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
       onClick={toggleSidebar}
       className={cn(
-        "absolute top-36 z-30 size-6 rounded-full border border-surface-700/80 bg-surface-900/95 p-0 text-ink-400 shadow-sm backdrop-blur-sm",
+        "absolute top-36 z-30 size-6 cursor-pointer rounded-full border border-surface-700/80 bg-surface-900/95 p-0 text-ink-400 shadow-sm backdrop-blur-sm",
         "hover:border-brand-500/40 hover:bg-surface-800 hover:text-brand-400",
         "in-data-[side=left]:-right-3 in-data-[side=right]:-left-3",
         className

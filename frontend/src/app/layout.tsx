@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist } from "next/font/google";
 import "./globals.css";
 
+import { AuthBootstrap } from "@/components/auth/auth-bootstrap";
 import { LocaleBootstrapScript } from "@/components/locale-bootstrap-script";
 import { ThemeBootstrapScript } from "@/components/theme-bootstrap-script";
 import { Toaster } from "@/components/ui/sonner";
@@ -29,6 +30,7 @@ export default function RootLayout({
       <body className="h-screen overflow-hidden bg-surface-950 text-ink-100 antialiased">
         <ThemeBootstrapScript />
         <LocaleBootstrapScript />
+        <AuthBootstrap />
         <TooltipProvider delay={0}>
           {children}
           <Toaster position="top-center" />
