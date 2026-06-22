@@ -30,7 +30,7 @@ export type AuthUser = {
 };
 
 export type AuthSession = {
-  accessToken: string;
+  accessToken?: string;
   tokenType: string;
   expiresAt?: number;
 };

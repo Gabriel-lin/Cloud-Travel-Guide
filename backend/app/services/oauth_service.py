@@ -57,6 +57,7 @@ class OAuthService:
                 "redirect_uri": backend_callback,
                 "scope": "read:user user:email",
                 "state": state,
+                "prompt": "select_account",
             }
         else:
             params = {
@@ -66,7 +67,7 @@ class OAuthService:
                 "scope": "openid email profile",
                 "state": state,
                 "access_type": "offline",
-                "prompt": "consent",
+                "prompt": "select_account consent",
             }
 
         return f"{OAUTH_AUTHORIZE_URLS[provider]}?{httpx.QueryParams(params)}"
@@ -77,7 +78,7 @@ class OAuthService:
         provider: OAuthProvider,
         code: str,
         state: str,
-    ) -> str:
+    ) -> tuple[str, TokenResponse]:
         state_payload = self._decode_state(state)
         frontend_redirect_uri = self._validate_redirect_uri(state_payload.redirect_uri)
         if state_payload.provider != provider:
@@ -90,7 +91,7 @@ class OAuthService:
             code=code,
             redirect_uri=self._backend_callback_url(provider),
         )
-        return self._build_frontend_redirect(frontend_redirect_uri, token)
+        return self._build_frontend_redirect(frontend_redirect_uri), token
 
     async def complete_login(
         self,
@@ -263,14 +264,8 @@ class OAuthService:
         return value if isinstance(value, str) and value else None
 
     @staticmethod
-    def _build_frontend_redirect(redirect_uri: str, token: TokenResponse) -> str:
-        query = urlencode(
-            {
-                "access_token": token.access_token,
-                "token_type": token.token_type,
-                "expires_in": str(token.expires_in),
-            }
-        )
+    def _build_frontend_redirect(redirect_uri: str) -> str:
+        query = urlencode({"oauth": "success"})
         separator = "&" if "?" in redirect_uri else "?"
         return f"{redirect_uri}{separator}{query}"
 

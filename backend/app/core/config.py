@@ -6,6 +6,7 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 OAuthProvider = Literal["github", "google"]
 DEFAULT_SECRET_KEY = "change-me-in-production-use-openssl-rand-hex-32"
+AUTH_COOKIE_NAME = "ctg_access_token"
 LOCAL_FRONTEND_ORIGINS = [
     "http://127.0.0.1:3000",
     "http://localhost:3000",
@@ -36,6 +37,7 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = Field(
         default=60 * 24 * 7, alias="ACCESS_TOKEN_EXPIRE_MINUTES"
     )
+    auth_cookie_secure: bool = Field(default=False, alias="AUTH_COOKIE_SECURE")
 
     cors_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: LOCAL_FRONTEND_ORIGINS.copy(),
@@ -78,6 +80,8 @@ class Settings(BaseSettings):
             raise ValueError("DEBUG must be disabled in production")
         if production and (self.secret_key == DEFAULT_SECRET_KEY or len(self.secret_key) < 32):
             raise ValueError("SECRET_KEY must be a non-default value of at least 32 characters")
+        if production and not self.auth_cookie_secure:
+            raise ValueError("AUTH_COOKIE_SECURE must be enabled in production")
         if production and ("*" in self.cors_origins or "*" in self.oauth_redirect_origins):
             raise ValueError("Wildcard origins are not allowed in production")
 

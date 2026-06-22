@@ -96,13 +96,25 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
 
     const token = getAccessToken();
     if (!token) {
-      set({
-        ready: true,
-        status: "anonymous",
-        user: null,
-        session: null,
-        error: null,
-      });
+      set({ status: "loading", error: null });
+      try {
+        const user = await authService.getCurrentUser({ skipErrorLog: true });
+        set({
+          ready: true,
+          status: "authenticated",
+          user,
+          session: null,
+          error: null,
+        });
+      } catch {
+        set({
+          ready: true,
+          status: "anonymous",
+          user: null,
+          session: null,
+          error: null,
+        });
+      }
       return;
     }
 
@@ -160,7 +172,9 @@ export function initAuthStore(): void {
 
 /** 登录成功后写入 store（OAuth 回调等场景） */
 export async function establishSession(session: AuthSession): Promise<void> {
-  setAccessToken(session.accessToken);
+  if (session.accessToken) {
+    setAccessToken(session.accessToken);
+  }
   useAuthStore.setState({ status: "loading", error: null, session });
 
   try {
@@ -170,6 +184,32 @@ export async function establishSession(session: AuthSession): Promise<void> {
       status: "authenticated",
       user,
       session,
+      error: null,
+    });
+  } catch (error) {
+    authService.clearSession();
+    useAuthStore.setState({
+      ready: true,
+      status: "anonymous",
+      user: null,
+      session: null,
+      error: error instanceof ApiError ? error.message : "Session invalid",
+    });
+    throw error;
+  }
+}
+
+/** OAuth callback 已由后端通过 HttpOnly Cookie 建立会话。 */
+export async function establishCookieSession(): Promise<void> {
+  useAuthStore.setState({ status: "loading", error: null, session: null });
+
+  try {
+    const user = await authService.getCurrentUser();
+    useAuthStore.setState({
+      ready: true,
+      status: "authenticated",
+      user,
+      session: null,
       error: null,
     });
   } catch (error) {

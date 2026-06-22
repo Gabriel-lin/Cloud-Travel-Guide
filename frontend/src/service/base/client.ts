@@ -15,8 +15,8 @@ export function createHttpClient(): AxiosInstance {
     },
     // 仅将 2xx 视为成功
     validateStatus: (status) => status >= 200 && status < 300,
-    // 跨域场景携带 cookie（若后端启用 session）
-    withCredentials: false,
+    // OAuth callback uses an HttpOnly session cookie.
+    withCredentials: true,
   });
 }
 

@@ -63,6 +63,9 @@ class OAuthRepository:
             )
         )
 
+    def get_accounts_by_user_id(self, user_id: uuid.UUID) -> list[OAuthAccount]:
+        return list(self._db.scalars(select(OAuthAccount).where(OAuthAccount.user_id == user_id)))
+
     def add_account(self, account: OAuthAccount) -> OAuthAccount:
         self._db.add(account)
         self._db.commit()

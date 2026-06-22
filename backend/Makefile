@@ -5,11 +5,11 @@
 
 dev:
 	uv run alembic upgrade head
-	uv run uvicorn main:app --reload --host 127.0.0.1 --port 8000
+	uv run uvicorn backend.main:app --app-dir .. --reload --host 127.0.0.1 --port 8000
 
 serve:
 	uv run alembic upgrade head
-	uv run uvicorn main:app --host 0.0.0.0 --port 8000
+	uv run uvicorn backend.main:app --app-dir .. --host 0.0.0.0 --port 8000
 
 lint:
 	uv run ruff check .
