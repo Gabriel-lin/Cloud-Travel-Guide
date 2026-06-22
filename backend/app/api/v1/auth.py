@@ -1,16 +1,16 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from fastapi.security import OAuth2PasswordRequestForm
 
 from backend.app.api.deps import (
     get_auth_service,
+    get_current_token,
     get_current_user,
     get_oauth_service,
-    oauth2_scheme,
 )
-from backend.app.core.config import OAuthProvider
+from backend.app.core.config import AUTH_COOKIE_NAME, OAuthProvider, get_settings
 from backend.app.models.user import User
 from backend.app.schemas.auth import (
     AuthUserResponse,
@@ -25,6 +25,30 @@ from backend.app.services.oauth_service import OAuthService
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+def set_auth_cookie(response: Response, token: TokenResponse) -> None:
+    settings = get_settings()
+    response.set_cookie(
+        key=AUTH_COOKIE_NAME,
+        value=token.access_token,
+        max_age=token.expires_in,
+        httponly=True,
+        secure=settings.auth_cookie_secure,
+        samesite="lax",
+        path="/",
+    )
+
+
+def clear_auth_cookie(response: Response) -> None:
+    settings = get_settings()
+    response.delete_cookie(
+        key=AUTH_COOKIE_NAME,
+        httponly=True,
+        secure=settings.auth_cookie_secure,
+        samesite="lax",
+        path="/",
+    )
+
+
 @router.post("/token")
 def login(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
@@ -35,10 +59,12 @@ def login(
 
 @router.post("/logout")
 def logout(
-    token: Annotated[str, Depends(oauth2_scheme)],
+    response: Response,
+    token: Annotated[str, Depends(get_current_token)],
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> MessageResponse:
     auth_service.logout(token)
+    clear_auth_cookie(response)
     return MessageResponse(message="Successfully logged out")
 
 
@@ -86,8 +112,10 @@ async def oauth_callback(
     state: Annotated[str, Query()],
     oauth_service: Annotated[OAuthService, Depends(get_oauth_service)],
 ) -> RedirectResponse:
-    target = await oauth_service.handle_callback(provider=provider, code=code, state=state)
-    return RedirectResponse(url=target, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+    target, token = await oauth_service.handle_callback(provider=provider, code=code, state=state)
+    response = RedirectResponse(url=target, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+    set_auth_cookie(response, token)
+    return response
 
 
 @router.post("/oauth/exchange")

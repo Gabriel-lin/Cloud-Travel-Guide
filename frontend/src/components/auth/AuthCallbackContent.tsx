@@ -6,7 +6,7 @@ import { toast } from "sonner";
 
 import { authService, type OAuthProvider } from "@/service/auth";
 import { toAuthSession } from "@/service/auth";
-import { establishSession } from "@/store";
+import { establishCookieSession, establishSession } from "@/store";
 import { useAppLocale } from "@/hooks/use-app-locale";
 
 function parseProvider(value: string | null): OAuthProvider | null {
@@ -35,6 +35,19 @@ export function AuthCallbackContent() {
       const accessToken = searchParams.get("access_token");
       const tokenType = searchParams.get("token_type") ?? "bearer";
       const expiresIn = searchParams.get("expires_in");
+      const oauthSuccess = searchParams.get("oauth") === "success";
+
+      if (oauthSuccess) {
+        try {
+          await establishCookieSession();
+          router.replace(searchParams.get("returnTo") ?? "/profile");
+          return;
+        } catch {
+          toast.error(t("auth.callbackFailed"));
+          router.replace("/login");
+          return;
+        }
+      }
 
       if (accessToken) {
         try {

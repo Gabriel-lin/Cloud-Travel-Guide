@@ -1,6 +1,7 @@
 export {
   type AuthStore,
   type AuthStatus,
+  establishCookieSession,
   establishSession,
   initAuthStore,
   selectIsAuthenticated,

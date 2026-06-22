@@ -71,7 +71,7 @@ Windows PowerShell 无 `make` 时：
 ```powershell
 cd backend
 uv run alembic upgrade head
-uv run uvicorn main:app --reload --host 127.0.0.1 --port 8000
+uv run uvicorn backend.main:app --app-dir .. --reload --host 127.0.0.1 --port 8000
 ```
 
 **5. 启动前端（另一个终端）**
@@ -129,7 +129,25 @@ docker compose -f docker-compose.dev.yml up backend
 | GitHub | `http://127.0.0.1:8000/api/v1/auth/oauth/github/callback` |
 | Google | `http://127.0.0.1:8000/api/v1/auth/oauth/google/callback` |
 
-`OAUTH_BACKEND_CALLBACK_BASE` 需与 API 对外地址一致（本地一般为 `http://127.0.0.1:8000`）。
+本地 `.env` 示例：
+
+```env
+OAUTH_BACKEND_CALLBACK_BASE=http://127.0.0.1:8000
+OAUTH_REDIRECT_ORIGINS=http://127.0.0.1:3000,http://localhost:3000
+AUTH_COOKIE_SECURE=false
+GITHUB_CLIENT_ID=你的 GitHub OAuth App Client ID
+GITHUB_CLIENT_SECRET=你的 GitHub OAuth App Client Secret
+GOOGLE_CLIENT_ID=你的 Google OAuth Client ID
+GOOGLE_CLIENT_SECRET=你的 Google OAuth Client Secret
+```
+
+配置完成后重启 backend。点击 GitHub / Google 登录时，前端会跳转到后端 `/api/v1/auth/oauth/{provider}`，后端生成授权地址并返回 307 跳转到对应平台授权页。平台授权完成后只回调后端 callback，后端换取 token、写入 HttpOnly Cookie，再跳回前端 `/auth/callback` 恢复会话。
+
+退出登录时，后端会清除本应用 Cookie、拉黑本应用 JWT，并尝试调用 GitHub / Google revoke 接口撤销当前用户对本应用的 OAuth 授权。再次点击第三方登录时，授权 URL 会携带账号选择参数，方便用户切换 GitHub / Google 账号后重新授权；但如果浏览器仍保留平台登录态，平台可能不会再次要求输入密码。
+
+若缺少某个平台的 Client ID 或 Secret，该平台会返回 `503 Service Unavailable`。
+
+`OAUTH_BACKEND_CALLBACK_BASE` 需与 API 对外地址一致（本地一般为 `http://127.0.0.1:8000`），并且 GitHub / Google OAuth 后台配置的 callback URL 必须与表格中的后端 callback 完全一致。`OAUTH_REDIRECT_ORIGINS` 是登录完成后允许回跳的前端源。生产环境使用 HTTPS 时设置 `AUTH_COOKIE_SECURE=true`。
 
 ### 常见问题
 

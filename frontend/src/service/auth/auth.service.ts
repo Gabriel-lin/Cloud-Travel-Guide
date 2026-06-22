@@ -15,6 +15,7 @@ import type {
   TokenResponse,
 } from "./types";
 import { toAuthSession } from "./types";
+import type { ServiceRequestConfig } from "@/service/base";
 
 const AUTH_PREFIX = `${API_V1_PREFIX}/auth`;
 
@@ -59,8 +60,8 @@ export const authService = {
   },
 
   /** GET /api/v1/auth/me — 当前登录用户 */
-  getCurrentUser() {
-    return get<AuthUser>(`${AUTH_PREFIX}/me`);
+  getCurrentUser(config?: ServiceRequestConfig) {
+    return get<AuthUser>(`${AUTH_PREFIX}/me`, config);
   },
 
   /** 构造 OAuth 授权跳转地址 */

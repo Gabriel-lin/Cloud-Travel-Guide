@@ -12,8 +12,11 @@ from sqlalchemy.pool import StaticPool
 os.environ["DATABASE_URL"] = "sqlite+pysqlite:///:memory:"
 os.environ["SECRET_KEY"] = "test-secret-key-with-at-least-32-bytes"
 
+from backend.app.core.config import AUTH_COOKIE_NAME
 from backend.app.core.database import Base, get_db
 from backend.app.main import create_app
+from backend.app.models.oauth_account import OAuthAccount
+from backend.app.services.auth_service import AuthService
 
 
 @pytest.fixture
@@ -86,6 +89,73 @@ def test_register_login_me_logout_flow(client: TestClient) -> None:
         headers={"Authorization": f"Bearer {token_payload['access_token']}"},
     )
     assert me_after_logout.status_code == 401
+
+
+def test_current_user_accepts_auth_cookie(client: TestClient) -> None:
+    register = client.post(
+        "/api/v1/auth/register",
+        params={"username": "cookie_user", "password": "secret123"},
+    )
+    assert register.status_code == 201
+
+    login = client.post(
+        "/api/v1/auth/token",
+        data={"username": "cookie_user", "password": "secret123"},
+    )
+    assert login.status_code == 200
+    token_payload = login.json()
+
+    client.cookies.set(AUTH_COOKIE_NAME, token_payload["access_token"])
+    me = client.get("/api/v1/auth/me")
+    assert me.status_code == 200
+    assert me.json()["username"] == "cookie_user"
+
+    logout = client.post("/api/v1/auth/logout")
+    assert logout.status_code == 200
+
+    me_after_logout = client.get("/api/v1/auth/me")
+    assert me_after_logout.status_code == 401
+
+
+def test_logout_revokes_oauth_authorization_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    testing_session_local = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    Base.metadata.create_all(bind=engine)
+    db = testing_session_local()
+    revoked: list[tuple[str, str | None]] = []
+
+    def fake_revoke_provider_token(_: AuthService, account: OAuthAccount) -> None:
+        revoked.append((account.provider, account.access_token))
+
+    monkeypatch.setattr(AuthService, "_revoke_provider_token", fake_revoke_provider_token)
+
+    try:
+        auth_service = AuthService(db)
+        user = auth_service.register(username="oauth_user", password="secret123")
+        account = OAuthAccount(
+            user_id=user.id,
+            provider="github",
+            provider_user_id="github-123",
+            access_token="github-access-token",
+            refresh_token="github-refresh-token",
+        )
+        db.add(account)
+        db.commit()
+
+        token = auth_service.issue_token(user).access_token
+        auth_service.logout(token)
+
+        db.refresh(account)
+        assert revoked == [("github", "github-access-token")]
+        assert account.access_token is None
+        assert account.refresh_token is None
+    finally:
+        db.close()
+        Base.metadata.drop_all(bind=engine)
 
 
 def test_openapi_available(client: TestClient) -> None:
