@@ -52,8 +52,13 @@ class OAuthExchangeRequest(BaseModel):
     redirect_uri: str
 
 
+class OAuthDesktopExchangeRequest(BaseModel):
+    code: str = Field(min_length=32, max_length=256)
+
+
 class OAuthStatePayload(BaseModel):
     provider: Literal["github", "google"]
     redirect_uri: str
+    client_type: Literal["web", "desktop"] = "web"
     nonce: str
     expires_at: datetime

@@ -1,5 +1,11 @@
 import { app, BrowserWindow, shell } from "electron";
 import {
+  findDeepLinkArg,
+  handleDeepLinkUrl,
+  initAuthBridge,
+  registerDeepLinkProtocol,
+} from "./auth";
+import {
   getProductionLoadUrl,
   installAppProtocolHandler,
   registerAppScheme,
@@ -13,6 +19,23 @@ registerAppScheme();
 
 /** 开发联调：未打包且非 production 时连接 Next dev server */
 const isDev = !app.isPackaged && process.env.NODE_ENV !== "production";
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on("second-instance", (_event, argv) => {
+    const deepLinkUrl = findDeepLinkArg(argv);
+    if (deepLinkUrl) {
+      handleDeepLinkUrl(deepLinkUrl);
+    }
+  });
+}
+
+app.on("open-url", (event, url) => {
+  event.preventDefault();
+  handleDeepLinkUrl(url);
+});
 
 function createWindow(): void {
   const { resolved } = getThemeState();
@@ -59,14 +82,18 @@ function createWindow(): void {
   }
 }
 
-void app.whenReady().then(() => {
-  initThemeBridge();
-  initLocaleBridge();
-  if (!isDev) {
-    installAppProtocolHandler();
-  }
-  createWindow();
-});
+if (gotSingleInstanceLock) {
+  void app.whenReady().then(() => {
+    registerDeepLinkProtocol();
+    initAuthBridge();
+    initThemeBridge();
+    initLocaleBridge();
+    if (!isDev) {
+      installAppProtocolHandler();
+    }
+    createWindow();
+  });
+}
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {

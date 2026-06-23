@@ -38,6 +38,14 @@ class Settings(BaseSettings):
         default=60 * 24 * 7, alias="ACCESS_TOKEN_EXPIRE_MINUTES"
     )
     auth_cookie_secure: bool = Field(default=False, alias="AUTH_COOKIE_SECURE")
+    desktop_oauth_redirect_uri: str = Field(
+        default="cloud-travel-guide://auth/callback",
+        alias="DESKTOP_OAUTH_REDIRECT_URI",
+    )
+    desktop_oauth_code_expire_seconds: int = Field(
+        default=120,
+        alias="DESKTOP_OAUTH_CODE_EXPIRE_SECONDS",
+    )
 
     cors_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: LOCAL_FRONTEND_ORIGINS.copy(),
@@ -74,6 +82,8 @@ class Settings(BaseSettings):
     def validate_security_settings(self) -> "Settings":
         if self.access_token_expire_minutes <= 0:
             raise ValueError("ACCESS_TOKEN_EXPIRE_MINUTES must be greater than 0")
+        if self.desktop_oauth_code_expire_seconds <= 0:
+            raise ValueError("DESKTOP_OAUTH_CODE_EXPIRE_SECONDS must be greater than 0")
 
         production = self.environment == "production"
         if production and self.debug:

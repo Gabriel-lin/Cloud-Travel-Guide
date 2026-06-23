@@ -18,11 +18,20 @@ def test_oauth_authorize_url_forces_account_selection(
         service = OAuthService.__new__(OAuthService)
         github_url = service.build_authorize_url("github", "http://127.0.0.1:3000/auth/callback")
         google_url = service.build_authorize_url("google", "http://127.0.0.1:3000/auth/callback")
+        desktop_url = service.build_authorize_url(
+            "github",
+            "cloud-travel-guide://auth/callback",
+            "desktop",
+        )
     finally:
         get_settings.cache_clear()
 
     assert "prompt=select_account" in github_url
     assert "prompt=select_account+consent" in google_url
+    assert (
+        "redirect_uri=http%3A%2F%2F127.0.0.1%3A8000%2Fapi%2Fv1%2Fauth%2Foauth%2Fgithub%2Fcallback"
+        in desktop_url
+    )
 
 
 def test_production_rejects_default_secret() -> None:

@@ -14,9 +14,11 @@ os.environ["SECRET_KEY"] = "test-secret-key-with-at-least-32-bytes"
 
 from backend.app.core.config import AUTH_COOKIE_NAME
 from backend.app.core.database import Base, get_db
+from backend.app.core.exceptions import BadRequestError
 from backend.app.main import create_app
 from backend.app.models.oauth_account import OAuthAccount
 from backend.app.services.auth_service import AuthService
+from backend.app.services.oauth_service import OAuthService
 
 
 @pytest.fixture
@@ -153,6 +155,32 @@ def test_logout_revokes_oauth_authorization_tokens(monkeypatch: pytest.MonkeyPat
         assert revoked == [("github", "github-access-token")]
         assert account.access_token is None
         assert account.refresh_token is None
+    finally:
+        db.close()
+        Base.metadata.drop_all(bind=engine)
+
+
+def test_desktop_oauth_code_is_single_use() -> None:
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    testing_session_local = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    Base.metadata.create_all(bind=engine)
+    db = testing_session_local()
+
+    try:
+        auth_service = AuthService(db)
+        oauth_service = OAuthService(db)
+        user = auth_service.register(username="desktop_user", password="secret123")
+
+        code = oauth_service._create_desktop_login_code(user)
+        token = oauth_service.exchange_desktop_code(code)
+        assert token.access_token
+
+        with pytest.raises(BadRequestError, match="invalid"):
+            oauth_service.exchange_desktop_code(code)
     finally:
         db.close()
         Base.metadata.drop_all(bind=engine)

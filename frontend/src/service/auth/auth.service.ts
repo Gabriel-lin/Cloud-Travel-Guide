@@ -65,10 +65,27 @@ export const authService = {
   },
 
   /** 构造 OAuth 授权跳转地址 */
-  getOAuthAuthorizeUrl(provider: OAuthProvider, redirectUri: string) {
+  getOAuthAuthorizeUrl(
+    provider: OAuthProvider,
+    redirectUri: string,
+    clientType: "web" | "desktop" = "web",
+  ) {
     const url = new URL(`${API_BASE_URL}${AUTH_PREFIX}/oauth/${provider}`);
     url.searchParams.set("redirect_uri", redirectUri);
+    url.searchParams.set("client_type", clientType);
     return url.toString();
+  },
+
+  /** POST /api/v1/auth/oauth/desktop/exchange — Electron 一次性 code 换 token */
+  async exchangeDesktopOAuthCode(code: string) {
+    const result = await post<TokenResponse>(
+      `${AUTH_PREFIX}/oauth/desktop/exchange`,
+      { code },
+      { skipAuth: true },
+    );
+
+    setAccessToken(result.access_token);
+    return toAuthSession(result);
   },
 
   /** POST /api/v1/auth/oauth/exchange — 用授权码换取 token（回调页使用） */

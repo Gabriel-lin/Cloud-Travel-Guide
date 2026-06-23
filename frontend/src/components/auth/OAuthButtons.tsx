@@ -3,9 +3,11 @@
 import { authService, type OAuthProvider } from "@/service/auth";
 import { Button } from "@/components/ui/button";
 import { useAppLocale } from "@/hooks/use-app-locale";
+import { getElectronAPI, isElectronRuntime } from "@/lib/electron";
 import { GitHubIcon, GoogleIcon } from "./oauth-icons";
 
 const OAUTH_CALLBACK_PATH = "/auth/callback";
+const DESKTOP_OAUTH_REDIRECT_URI = "cloud-travel-guide://auth/callback";
 
 function getOAuthRedirectUri() {
   if (typeof window === "undefined") return "";
@@ -13,10 +15,17 @@ function getOAuthRedirectUri() {
 }
 
 function startOAuth(provider: OAuthProvider) {
-  const redirectUri = getOAuthRedirectUri();
-  window.location.assign(
-    authService.getOAuthAuthorizeUrl(provider, redirectUri),
-  );
+  if (isElectronRuntime()) {
+    const url = authService.getOAuthAuthorizeUrl(
+      provider,
+      DESKTOP_OAUTH_REDIRECT_URI,
+      "desktop",
+    );
+    void getElectronAPI()?.auth.openOAuthUrl(url);
+    return;
+  }
+
+  window.location.assign(authService.getOAuthAuthorizeUrl(provider, getOAuthRedirectUri()));
 }
 
 export function OAuthButtons() {
