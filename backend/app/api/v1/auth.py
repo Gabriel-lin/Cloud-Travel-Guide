@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, status
 from fastapi.responses import RedirectResponse, Response
@@ -15,6 +15,7 @@ from backend.app.models.user import User
 from backend.app.schemas.auth import (
     AuthUserResponse,
     MessageResponse,
+    OAuthDesktopExchangeRequest,
     OAuthExchangeRequest,
     RegisterRequest,
     TokenResponse,
@@ -100,8 +101,9 @@ def oauth_authorize(
     provider: OAuthProvider,
     redirect_uri: Annotated[str, Query()],
     oauth_service: Annotated[OAuthService, Depends(get_oauth_service)],
+    client_type: Annotated[Literal["web", "desktop"], Query()] = "web",
 ) -> RedirectResponse:
-    url = oauth_service.build_authorize_url(provider, redirect_uri)
+    url = oauth_service.build_authorize_url(provider, redirect_uri, client_type)
     return RedirectResponse(url=url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
 
@@ -114,7 +116,8 @@ async def oauth_callback(
 ) -> RedirectResponse:
     target, token = await oauth_service.handle_callback(provider=provider, code=code, state=state)
     response = RedirectResponse(url=target, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
-    set_auth_cookie(response, token)
+    if token is not None:
+        set_auth_cookie(response, token)
     return response
 
 
@@ -129,3 +132,11 @@ async def oauth_exchange(
         redirect_uri=payload.redirect_uri,
     )
     return token
+
+
+@router.post("/oauth/desktop/exchange")
+def oauth_desktop_exchange(
+    payload: OAuthDesktopExchangeRequest,
+    oauth_service: Annotated[OAuthService, Depends(get_oauth_service)],
+) -> TokenResponse:
+    return oauth_service.exchange_desktop_code(payload.code)

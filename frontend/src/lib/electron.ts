@@ -1,6 +1,10 @@
 import { useSyncExternalStore } from "react";
 
-import type { ElectronLocaleAPI, ElectronThemeAPI } from "../../electron/preload";
+import type {
+  ElectronAuthAPI,
+  ElectronLocaleAPI,
+  ElectronThemeAPI,
+} from "../../electron/preload";
 import type { AppLocale, LocaleState } from "@/lib/locale";
 import type { ThemePreference, ThemeState } from "@/lib/theme";
 
@@ -14,6 +18,7 @@ export type ElectronAPI = {
   };
   theme: ElectronThemeAPI;
   locale: ElectronLocaleAPI;
+  auth: ElectronAuthAPI;
 };
 
 declare global {

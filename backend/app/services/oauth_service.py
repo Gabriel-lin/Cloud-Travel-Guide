@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import secrets
 from datetime import UTC, datetime, timedelta
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict
 from urllib.parse import urlencode, urlparse
 
 import httpx
@@ -17,8 +18,9 @@ from backend.app.core.constants import (
 )
 from backend.app.core.exceptions import BadRequestError, ServiceUnavailableError
 from backend.app.models.oauth_account import OAuthAccount
+from backend.app.models.oauth_login_code import OAuthLoginCode
 from backend.app.models.user import User
-from backend.app.repositories import OAuthRepository, UserRepository
+from backend.app.repositories import OAuthLoginCodeRepository, OAuthRepository, UserRepository
 from backend.app.schemas.auth import OAuthStatePayload, TokenResponse
 from backend.app.services.auth_service import AuthService
 
@@ -31,21 +33,31 @@ class ParsedOAuthProfile(TypedDict):
     avatar_url: str | None
 
 
+OAuthClientType = Literal["web", "desktop"]
+
+
 class OAuthService:
     def __init__(self, db: Session) -> None:
         self._db = db
         self._users = UserRepository(db)
         self._oauth = OAuthRepository(db)
+        self._login_codes = OAuthLoginCodeRepository(db)
         self._auth = AuthService(db)
 
-    def build_authorize_url(self, provider: OAuthProvider, redirect_uri: str) -> str:
-        redirect_uri = self._validate_redirect_uri(redirect_uri)
+    def build_authorize_url(
+        self,
+        provider: OAuthProvider,
+        redirect_uri: str,
+        client_type: OAuthClientType = "web",
+    ) -> str:
+        redirect_uri = self._validate_redirect_uri(redirect_uri, client_type)
         client_id, _ = self._provider_credentials(provider)
         backend_callback = self._backend_callback_url(provider)
 
         state_payload = OAuthStatePayload(
             provider=provider,
             redirect_uri=redirect_uri,
+            client_type=client_type,
             nonce=secrets.token_urlsafe(16),
             expires_at=datetime.now(UTC) + timedelta(minutes=10),
         )
@@ -78,20 +90,43 @@ class OAuthService:
         provider: OAuthProvider,
         code: str,
         state: str,
-    ) -> tuple[str, TokenResponse]:
+    ) -> tuple[str, TokenResponse | None]:
         state_payload = self._decode_state(state)
-        frontend_redirect_uri = self._validate_redirect_uri(state_payload.redirect_uri)
+        redirect_uri = self._validate_redirect_uri(
+            state_payload.redirect_uri,
+            state_payload.client_type,
+        )
         if state_payload.provider != provider:
             raise BadRequestError("OAuth provider mismatch")
         if state_payload.expires_at < datetime.now(UTC):
             raise BadRequestError("OAuth state expired")
 
-        _, token = await self.complete_login(
-            provider=provider,
-            code=code,
-            redirect_uri=self._backend_callback_url(provider),
-        )
-        return self._build_frontend_redirect(frontend_redirect_uri), token
+        try:
+            user, token = await self.complete_login(
+                provider=provider,
+                code=code,
+                redirect_uri=self._backend_callback_url(provider),
+            )
+        except ServiceUnavailableError:
+            if state_payload.client_type == "desktop":
+                return self._build_error_redirect(redirect_uri, "provider_unavailable"), None
+            raise
+        except BadRequestError:
+            if state_payload.client_type == "desktop":
+                return self._build_error_redirect(redirect_uri, "oauth_failed"), None
+            raise
+        if state_payload.client_type == "desktop":
+            login_code = self._create_desktop_login_code(user)
+            return self._build_desktop_redirect(redirect_uri, login_code), None
+
+        return self._build_frontend_redirect(redirect_uri), token
+
+    def exchange_desktop_code(self, code: str) -> TokenResponse:
+        login_code = self._consume_desktop_login_code(code)
+        user = self._users.get_by_id(login_code.user_id)
+        if not user:
+            raise BadRequestError("OAuth desktop login code is invalid")
+        return self._auth.issue_token(user)
 
     async def complete_login(
         self,
@@ -233,35 +268,85 @@ class OAuthService:
         if provider == "google":
             data["grant_type"] = "authorization_code"
 
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            response = await client.post(
-                OAUTH_TOKEN_URLS[provider],
-                data=data,
-                headers={"Accept": "application/json"},
-            )
-            response.raise_for_status()
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                response = await client.post(
+                    OAUTH_TOKEN_URLS[provider],
+                    data=data,
+                    headers={"Accept": "application/json"},
+                )
+                response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise ServiceUnavailableError(
+                f"{provider.title()} OAuth token exchange failed"
+            ) from exc
+
+        try:
             data = response.json()
-            if not isinstance(data, dict):
-                raise BadRequestError("OAuth provider returned an invalid token response")
-            return data
+        except ValueError as exc:
+            raise BadRequestError("OAuth provider returned an invalid token response") from exc
+        if not isinstance(data, dict):
+            raise BadRequestError("OAuth provider returned an invalid token response")
+        return data
 
     async def _fetch_profile(self, provider: OAuthProvider, access_token: str) -> dict[str, Any]:
         headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
         if provider == "github":
             headers["User-Agent"] = "Cloud-Travel-Guide"
 
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            response = await client.get(OAUTH_USER_URLS[provider], headers=headers)
-            response.raise_for_status()
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                response = await client.get(OAUTH_USER_URLS[provider], headers=headers)
+                response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise ServiceUnavailableError(f"{provider.title()} OAuth profile fetch failed") from exc
+
+        try:
             data = response.json()
-            if not isinstance(data, dict):
-                raise BadRequestError("OAuth provider returned an invalid profile response")
-            return data
+        except ValueError as exc:
+            raise BadRequestError("OAuth provider returned an invalid profile response") from exc
+        if not isinstance(data, dict):
+            raise BadRequestError("OAuth provider returned an invalid profile response")
+        return data
 
     @staticmethod
     def _profile_str(profile: dict[str, Any], key: str) -> str | None:
         value = profile.get(key)
         return value if isinstance(value, str) and value else None
+
+    def _create_desktop_login_code(self, user: User) -> str:
+        settings = get_settings()
+        raw_code = secrets.token_urlsafe(48)
+        self._login_codes.add(
+            OAuthLoginCode(
+                code_hash=self._hash_login_code(raw_code),
+                user_id=user.id,
+                expires_at=datetime.now(UTC)
+                + timedelta(seconds=settings.desktop_oauth_code_expire_seconds),
+            )
+        )
+        return raw_code
+
+    def _consume_desktop_login_code(self, code: str) -> OAuthLoginCode:
+        login_code = self._login_codes.get_by_code_hash(self._hash_login_code(code))
+        if not login_code or login_code.consumed_at is not None:
+            raise BadRequestError("OAuth desktop login code is invalid")
+        if self._as_utc(login_code.expires_at) < datetime.now(UTC):
+            raise BadRequestError("OAuth desktop login code expired")
+
+        login_code.consumed_at = datetime.now(UTC)
+        self._login_codes.save()
+        return login_code
+
+    @staticmethod
+    def _hash_login_code(code: str) -> str:
+        return hashlib.sha256(code.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _as_utc(value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
 
     @staticmethod
     def _build_frontend_redirect(redirect_uri: str) -> str:
@@ -270,7 +355,24 @@ class OAuthService:
         return f"{redirect_uri}{separator}{query}"
 
     @staticmethod
-    def _validate_redirect_uri(redirect_uri: str) -> str:
+    def _build_desktop_redirect(redirect_uri: str, code: str) -> str:
+        query = urlencode({"code": code})
+        separator = "&" if "?" in redirect_uri else "?"
+        return f"{redirect_uri}{separator}{query}"
+
+    @staticmethod
+    def _build_error_redirect(redirect_uri: str, error: str) -> str:
+        query = urlencode({"error": error})
+        separator = "&" if "?" in redirect_uri else "?"
+        return f"{redirect_uri}{separator}{query}"
+
+    @staticmethod
+    def _validate_redirect_uri(redirect_uri: str, client_type: OAuthClientType = "web") -> str:
+        if client_type == "desktop":
+            if redirect_uri != get_settings().desktop_oauth_redirect_uri:
+                raise BadRequestError("Invalid OAuth desktop redirect URI")
+            return redirect_uri
+
         parsed = urlparse(redirect_uri)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.fragment:
             raise BadRequestError("Invalid OAuth redirect URI")

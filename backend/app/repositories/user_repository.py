@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.app.models.oauth_account import OAuthAccount
+from backend.app.models.oauth_login_code import OAuthLoginCode
 from backend.app.models.token_blacklist import TokenBlacklist
 from backend.app.models.user import User
 
@@ -71,6 +72,23 @@ class OAuthRepository:
         self._db.commit()
         self._db.refresh(account)
         return account
+
+    def save(self) -> None:
+        self._db.commit()
+
+
+class OAuthLoginCodeRepository:
+    def __init__(self, db: Session) -> None:
+        self._db = db
+
+    def add(self, code: OAuthLoginCode) -> OAuthLoginCode:
+        self._db.add(code)
+        self._db.commit()
+        self._db.refresh(code)
+        return code
+
+    def get_by_code_hash(self, code_hash: str) -> OAuthLoginCode | None:
+        return self._db.scalar(select(OAuthLoginCode).where(OAuthLoginCode.code_hash == code_hash))
 
     def save(self) -> None:
         self._db.commit()

@@ -2,6 +2,11 @@ appId: com.cloudtravelguide.app
 productName: Cloud Travel Guide
 copyright: Copyright © 2026 Cloud Travel Guide
 
+protocols:
+  - name: Cloud Travel Guide OAuth
+    schemes:
+      - cloud-travel-guide
+
 directories:
   output: dist
   buildResources: resources

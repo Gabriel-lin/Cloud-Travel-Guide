@@ -1,7 +1,7 @@
 from logging.config import fileConfig
 
 from backend.app.core.config import get_settings
-from backend.app.models import OAuthAccount, TokenBlacklist, User  # noqa: F401
+from backend.app.models import OAuthAccount, OAuthLoginCode, TokenBlacklist, User  # noqa: F401
 from backend.app.models.base import Base
 from sqlalchemy import engine_from_config, pool
 

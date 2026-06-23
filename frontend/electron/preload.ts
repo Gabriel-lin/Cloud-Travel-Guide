@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 
+import { AUTH_IPC } from "./auth-ipc";
 import {
   DEFAULT_APP_LOCALE,
   LOCALE_IPC,
@@ -28,6 +29,14 @@ export type ElectronLocaleAPI = {
   onStateChanged: (listener: (state: LocaleState) => void) => () => void;
 };
 
+export type ElectronAuthAPI = {
+  openOAuthUrl: (url: string) => Promise<void>;
+  getAccessTokenSync: () => string | null;
+  setAccessToken: (token: string) => Promise<void>;
+  clearAccessToken: () => Promise<void>;
+  onOAuthCallback: (listener: (url: string) => void) => () => void;
+};
+
 export type ElectronAPI = {
   platform: NodeJS.Platform;
   isElectron: true;
@@ -38,10 +47,12 @@ export type ElectronAPI = {
   };
   theme: ElectronThemeAPI;
   locale: ElectronLocaleAPI;
+  auth: ElectronAuthAPI;
 };
 
 const themeListeners = new Set<(state: ThemeState) => void>();
 const localeListeners = new Set<(state: LocaleState) => void>();
+const oauthCallbackListeners = new Set<(url: string) => void>();
 
 ipcRenderer.on(THEME_IPC.stateChanged, (_event, state: ThemeState) => {
   for (const listener of themeListeners) {
@@ -52,6 +63,12 @@ ipcRenderer.on(THEME_IPC.stateChanged, (_event, state: ThemeState) => {
 ipcRenderer.on(LOCALE_IPC.stateChanged, (_event, state: LocaleState) => {
   for (const listener of localeListeners) {
     listener(state);
+  }
+});
+
+ipcRenderer.on(AUTH_IPC.oauthCallback, (_event, url: string) => {
+  for (const listener of oauthCallbackListeners) {
+    listener(url);
   }
 });
 
@@ -103,6 +120,20 @@ const electronLocaleAPI: ElectronLocaleAPI = {
   },
 };
 
+const electronAuthAPI: ElectronAuthAPI = {
+  openOAuthUrl: (url) => ipcRenderer.invoke(AUTH_IPC.openOAuthUrl, url),
+  getAccessTokenSync: () =>
+    ipcRenderer.sendSync(AUTH_IPC.getAccessTokenSync) as string | null,
+  setAccessToken: (token) => ipcRenderer.invoke(AUTH_IPC.setAccessToken, token),
+  clearAccessToken: () => ipcRenderer.invoke(AUTH_IPC.clearAccessToken),
+  onOAuthCallback: (listener) => {
+    oauthCallbackListeners.add(listener);
+    return () => {
+      oauthCallbackListeners.delete(listener);
+    };
+  },
+};
+
 const electronAPI: ElectronAPI = {
   platform: process.platform,
   isElectron: true,
@@ -113,6 +144,7 @@ const electronAPI: ElectronAPI = {
   },
   theme: electronThemeAPI,
   locale: electronLocaleAPI,
+  auth: electronAuthAPI,
 };
 
 contextBridge.exposeInMainWorld("electronAPI", electronAPI);
