@@ -1,8 +1,10 @@
 import * as path from "node:path";
 import { app } from "electron";
 
+import { ELECTRON_DEV_SERVER_URL } from "@/config/dev";
+
 /** Next.js dev server (development only) */
-export const DEV_SERVER_URL = "http://127.0.0.1:3000";
+export const DEV_SERVER_URL = ELECTRON_DEV_SERVER_URL;
 
 /** Preload script next to compiled main.js */
 export function getPreloadPath(): string {

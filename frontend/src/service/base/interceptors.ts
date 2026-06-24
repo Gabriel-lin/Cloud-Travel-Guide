@@ -53,7 +53,14 @@ function onResponseRejected(error: AxiosError) {
     clearAccessToken();
   }
 
-  if (!serviceConfig?.skipErrorLog) {
+  const isExpectedClientError =
+    apiError.status >= 400 && apiError.status < 500;
+  const shouldLog =
+    !serviceConfig?.skipErrorLog &&
+    !isExpectedClientError &&
+    (apiError.isNetworkError || apiError.isTimeout || apiError.status >= 500);
+
+  if (shouldLog) {
     console.error("[service] request failed:", {
       url: error.config?.url,
       method: error.config?.method,

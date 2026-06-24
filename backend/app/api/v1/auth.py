@@ -2,26 +2,29 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, status
 from fastapi.responses import RedirectResponse, Response
-from fastapi.security import OAuth2PasswordRequestForm
 
 from backend.app.api.deps import (
     get_auth_service,
     get_current_token,
     get_current_user,
     get_oauth_service,
+    get_password_cipher_service,
 )
 from backend.app.core.config import AUTH_COOKIE_NAME, OAuthProvider, get_settings
 from backend.app.models.user import User
 from backend.app.schemas.auth import (
     AuthUserResponse,
+    LoginRequest,
     MessageResponse,
     OAuthDesktopExchangeRequest,
     OAuthExchangeRequest,
+    PasswordKeyResponse,
     RegisterRequest,
     TokenResponse,
 )
 from backend.app.services.auth_service import AuthService
 from backend.app.services.oauth_service import OAuthService
+from backend.app.services.password_cipher_service import PasswordCipherService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -50,12 +53,21 @@ def clear_auth_cookie(response: Response) -> None:
     )
 
 
-@router.post("/token")
+@router.get("/password-key", response_model_by_alias=True)
+def password_key(
+    cipher_service: Annotated[PasswordCipherService, Depends(get_password_cipher_service)],
+) -> PasswordKeyResponse:
+    return cipher_service.get_public_key_material()
+
+
+@router.post("/login")
 def login(
-    form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
+    payload: LoginRequest,
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
+    cipher_service: Annotated[PasswordCipherService, Depends(get_password_cipher_service)],
 ) -> TokenResponse:
-    return auth_service.login(username=form_data.username, password=form_data.password)
+    password = cipher_service.decrypt_password(payload.password_envelope)
+    return auth_service.login(username=payload.username, password=password)
 
 
 @router.post("/logout")
@@ -71,20 +83,12 @@ def logout(
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 def register(
-    username: str,
-    password: str,
-    auth_service: Annotated[AuthService, Depends(get_auth_service)],
-) -> MessageResponse:
-    auth_service.register(username=username, password=password)
-    return MessageResponse(message="User registered successfully")
-
-
-@router.post("/register/json", status_code=status.HTTP_201_CREATED)
-def register_json(
     payload: RegisterRequest,
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
+    cipher_service: Annotated[PasswordCipherService, Depends(get_password_cipher_service)],
 ) -> MessageResponse:
-    auth_service.register(username=payload.username, password=payload.password)
+    password = cipher_service.decrypt_register_password(payload.password_envelope)
+    auth_service.register(username=payload.username, password=password)
     return MessageResponse(message="User registered successfully")
 
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { Compass } from "lucide-react";
+import { Compass, Eye, EyeOff } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
@@ -11,52 +11,102 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { APP_NAME } from "@/config/app";
 import { useAuth } from "@/hooks/use-auth";
 import { useAppLocale } from "@/hooks/use-app-locale";
+import { getLoginErrorMessage } from "@/lib/auth/login-error";
+import { getRegisterPasswordErrorMessage } from "@/lib/auth/register-password-error";
 import { cn } from "@/lib/utils";
 
 const LOGIN_BG = "/images/login-scenery.jpg";
 
-export function LoginPageContent() {
+type AuthPageMode = "login" | "register";
+
+type LoginPageContentProps = {
+  mode?: AuthPageMode;
+};
+
+export function LoginPageContent({ mode = "login" }: LoginPageContentProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { t } = useAppLocale();
-  const { login, isAuthenticated, isLoading, ready, error, clearError } =
-    useAuth();
+  const { login, register, isAuthenticated, isLoading, ready } = useAuth();
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const returnTo = searchParams.get("returnTo") ?? "/profile";
+  const isRegister = mode === "register";
 
   useEffect(() => {
     if (!ready || !isAuthenticated) return;
     router.replace(returnTo);
   }, [ready, isAuthenticated, returnTo, router]);
 
-  useEffect(() => {
-    if (error) {
-      toast.error(error);
-      clearError();
-    }
-  }, [error, clearError]);
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function submitLogin() {
     if (submitting || isLoading) return;
+
+    const payload = { username: username.trim(), password };
 
     setSubmitting(true);
     try {
-      await login({ username: username.trim(), password });
+      await login(payload);
       toast.success(t("auth.submit"));
       router.replace(returnTo);
-    } catch {
-      toast.error(t("auth.loginFailed"));
+    } catch (error) {
+      toast.error(getLoginErrorMessage(error, t));
     } finally {
       setSubmitting(false);
     }
   }
+
+  async function submitRegister() {
+    if (submitting || isLoading) return;
+
+    const payload = { username: username.trim(), password };
+    const passwordError = getRegisterPasswordErrorMessage(password, t);
+    if (passwordError) {
+      toast.error(passwordError);
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await register(payload);
+      toast.success(t("auth.registerSuccess"));
+      router.replace(returnTo);
+    } catch {
+      toast.error(t("auth.registerFailed"));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function handleLogin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void submitLogin();
+  }
+
+  function handleRegister(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void submitRegister();
+  }
+
+  const pageTitle = isRegister ? t("auth.registerPageTitle") : t("auth.pageTitle");
+  const pageDescription = isRegister
+    ? t("auth.registerPageDescription")
+    : t("auth.pageDescription");
+  const brandSubtitle = isRegister
+    ? t("auth.registerBrandSubtitle")
+    : t("auth.brandSubtitle");
+  const passwordAutoComplete = isRegister ? "new-password" : "current-password";
+  const passwordPlaceholder = isRegister
+    ? t("auth.registerPasswordPlaceholder")
+    : t("auth.passwordPlaceholder");
+  const passwordPattern = isRegister ? "[A-Za-z0-9]+" : undefined;
+  const busy = submitting || isLoading;
 
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden p-4 sm:p-8">
@@ -75,40 +125,39 @@ export function LoginPageContent() {
           <div className="flex items-center gap-3 text-brand-400">
             <Compass className="size-8" strokeWidth={1.75} />
             <span className="text-lg font-semibold tracking-tight">
-              {t("auth.brandTitle")}
+              {APP_NAME}
             </span>
           </div>
           <div className="space-y-3">
             <h1 className="text-3xl font-semibold tracking-tight text-ink-50">
-              {t("auth.brandSubtitle")}
+              {brandSubtitle}
             </h1>
             <p className="max-w-sm text-sm leading-relaxed text-ink-300">
-              {t("auth.pageDescription")}
+              {pageDescription}
             </p>
           </div>
-          <p className="text-xs text-ink-500">Jiuzhaigou · Cloud Travel Guide</p>
+          <p className="text-xs text-ink-500">Jiuzhaigou · {APP_NAME}</p>
         </section>
 
         <section className="flex flex-col justify-center p-6 sm:p-10">
           <div className="mb-8 space-y-2 lg:hidden">
             <div className="flex items-center gap-2 text-brand-400">
               <Compass className="size-6" strokeWidth={1.75} />
-              <span className="font-semibold">{t("auth.brandTitle")}</span>
+              <span className="font-semibold">{APP_NAME}</span>
             </div>
-            <h2 className="text-2xl font-semibold text-ink-50">
-              {t("auth.pageTitle")}
-            </h2>
-            <p className="text-sm text-ink-400">{t("auth.pageDescription")}</p>
+            <h2 className="text-2xl font-semibold text-ink-50">{pageTitle}</h2>
+            <p className="text-sm text-ink-400">{pageDescription}</p>
           </div>
 
           <div className="mb-6 hidden space-y-1 lg:block">
-            <h2 className="text-2xl font-semibold text-ink-50">
-              {t("auth.pageTitle")}
-            </h2>
-            <p className="text-sm text-ink-400">{t("auth.pageDescription")}</p>
+            <h2 className="text-2xl font-semibold text-ink-50">{pageTitle}</h2>
+            <p className="text-sm text-ink-400">{pageDescription}</p>
           </div>
 
-          <form className="space-y-5" onSubmit={handleSubmit}>
+          <form
+            className="space-y-5"
+            onSubmit={isRegister ? handleRegister : handleLogin}
+          >
             <div className="space-y-2">
               <Label htmlFor="username" className="text-ink-200">
                 {t("auth.usernameLabel")}
@@ -120,6 +169,7 @@ export function LoginPageContent() {
                 placeholder={t("auth.usernamePlaceholder")}
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
+                minLength={3}
                 required
                 className="h-10 border-surface-600/80 bg-surface-950/50"
               />
@@ -129,17 +179,40 @@ export function LoginPageContent() {
               <Label htmlFor="password" className="text-ink-200">
                 {t("auth.passwordLabel")}
               </Label>
-              <Input
-                id="password"
-                name="password"
-                type="password"
-                autoComplete="current-password"
-                placeholder={t("auth.passwordPlaceholder")}
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                required
-                className="h-10 border-surface-600/80 bg-surface-950/50"
-              />
+              <div className="relative">
+                <Input
+                  id="password"
+                  name="password"
+                  type={showPassword ? "text" : "password"}
+                  autoComplete={passwordAutoComplete}
+                  placeholder={passwordPlaceholder}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  minLength={6}
+                  pattern={passwordPattern}
+                  title={isRegister ? t("auth.registerPasswordHint") : undefined}
+                  required
+                  className="h-10 border-surface-600/80 bg-surface-950/50 pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((visible) => !visible)}
+                  className={cn(
+                    "absolute top-1/2 right-2 inline-flex size-8 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md text-ink-400 transition-colors hover:bg-surface-800/60 hover:text-ink-200",
+                  )}
+                  aria-label={
+                    showPassword ? t("auth.hidePassword") : t("auth.showPassword")
+                  }
+                  aria-pressed={showPassword}
+                  aria-controls="password"
+                >
+                  {showPassword ? (
+                    <EyeOff className="size-4" aria-hidden />
+                  ) : (
+                    <Eye className="size-4" aria-hidden />
+                  )}
+                </button>
+              </div>
             </div>
 
             <Button
@@ -147,9 +220,15 @@ export function LoginPageContent() {
               className={cn(
                 "h-10 w-full cursor-pointer bg-brand-600 text-white hover:bg-brand-500",
               )}
-              disabled={submitting || isLoading}
+              disabled={busy}
             >
-              {submitting || isLoading ? t("auth.submitting") : t("auth.submit")}
+              {busy
+                ? isRegister
+                  ? t("auth.registering")
+                  : t("auth.submitting")
+                : isRegister
+                  ? t("auth.register")
+                  : t("auth.submit")}
             </Button>
           </form>
 
@@ -162,12 +241,12 @@ export function LoginPageContent() {
           <OAuthButtons />
 
           <p className="mt-8 text-center text-sm text-ink-400">
-            {t("auth.noAccount")}{" "}
+            {isRegister ? t("auth.hasAccount") : t("auth.noAccount")}{" "}
             <Link
-              href="/login"
+              href={isRegister ? "/login" : "/register"}
               className="font-medium text-brand-400 hover:text-brand-300"
             >
-              {t("auth.register")}
+              {isRegister ? t("auth.submit") : t("auth.register")}
             </Link>
           </p>
 

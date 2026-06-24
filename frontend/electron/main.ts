@@ -1,4 +1,5 @@
 import { app, BrowserWindow, shell } from "electron";
+import { APP_ID, APP_NAME } from "@/config/app";
 import {
   findDeepLinkArg,
   handleDeepLinkUrl,
@@ -16,6 +17,11 @@ import { getThemeState, initThemeBridge, pushThemeStateToWindow } from "./theme"
 import { initLocaleBridge, pushLocaleStateToWindow } from "./locale";
 
 registerAppScheme();
+
+if (process.platform === "win32") {
+  app.setAppUserModelId(APP_ID);
+}
+app.setName(APP_NAME);
 
 /** 开发联调：未打包且非 production 时连接 Next dev server */
 const isDev = !app.isPackaged && process.env.NODE_ENV !== "production";
@@ -53,7 +59,7 @@ function createWindow(): void {
       nodeIntegration: false,
       sandbox: true,
     },
-    title: "Cloud Travel Guide",
+    title: APP_NAME,
   });
 
   mainWindow.once("ready-to-show", () => {

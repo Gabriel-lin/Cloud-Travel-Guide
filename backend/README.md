@@ -49,6 +49,15 @@ DATABASE_URL=postgresql://user:password@localhost:5432/cloud_travel_guide
 SECRET_KEY=请替换为至少 32 字节的随机字符串
 ```
 
+本地开发可不配置 `AUTH_PASSWORD_RSA_PRIVATE_KEY_PEM`，后端会自动生成临时 RSA 密钥。若需与生产一致或多人共用同一密钥，可执行：
+
+```bash
+cd backend
+uv run python scripts/generate_password_rsa_key.py
+```
+
+将输出的一行粘贴到 `.env` 即可。
+
 **3. 启动 PostgreSQL**
 
 在仓库根目录执行：
@@ -96,17 +105,14 @@ NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
 | OpenAPI 文档 | http://127.0.0.1:8000/docs |
 | 登录页 | http://127.0.0.1:3000/login |
 
-快速冒烟（注册 + 登录）：
+快速冒烟（需先 `GET /api/v1/auth/password-key`，由前端或加密客户端完成；详见 [密码传输加密](../docs/password-transport-encryption.md)）：
 
 ```bash
-# 注册
-curl -X POST "http://127.0.0.1:8000/api/v1/auth/register?username=demo&password=secret123"
-
-# 登录（获取 access_token）
-curl -X POST "http://127.0.0.1:8000/api/v1/auth/token" \
-  -d "username=demo&password=secret123" \
-  -H "Content-Type: application/x-www-form-urlencoded"
+curl http://127.0.0.1:8000/api/v1/health
+curl http://127.0.0.1:8000/api/v1/auth/password-key
 ```
+
+登录 / 注册请通过前端 `http://127.0.0.1:3000/login` 或按文档构造 `password_envelope` 调用 `/api/v1/auth/login`、`/api/v1/auth/register`。
 
 ### 方式二：Docker 一键启动后端
 
@@ -195,6 +201,10 @@ cd backend && uv run alembic upgrade head
 |------|--------|------|
 | `DATABASE_URL` | `postgresql://user:password@postgres:5432/cloud_travel_guide` | PostgreSQL 连接串 |
 | `SECRET_KEY` | *(开发默认，生产必改)* | JWT 签名密钥 |
+| `ENVIRONMENT` | `development` | 设为 `production` 时启用生产安全校验 |
+| `AUTH_PASSWORD_RSA_PRIVATE_KEY_PEM` | — | 密码传输 RSA 私钥（PKCS#8 PEM）；**生产必填** |
+| `AUTH_PASSWORD_ENVELOPE_TTL_SECONDS` | `60` | 加密密码信封有效期（秒） |
+| `AUTH_COOKIE_SECURE` | `false` | 生产 HTTPS 下设为 `true` |
 | `CORS_ORIGINS` | `http://127.0.0.1:3000,http://localhost:3000` | 允许的前端源 |
 | `OAUTH_REDIRECT_ORIGINS` | `http://127.0.0.1:3000,http://localhost:3000` | OAuth 登录完成后允许携带 token 回跳的前端源 |
 | `OAUTH_BACKEND_CALLBACK_BASE` | `http://127.0.0.1:8000` | OAuth 后端回调根地址 |
@@ -202,6 +212,60 @@ cd backend && uv run alembic upgrade head
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | — | Google OAuth |
 
 本地开发可复制 `.env.example` 为 `.env`（勿提交密钥）。
+
+## 生产部署
+
+部署 API 服务前，除 `SECRET_KEY`、`DATABASE_URL`、CORS / OAuth 等常规项外，**必须**配置密码传输 RSA 私钥：
+
+| 变量 | 要求 |
+|------|------|
+| `ENVIRONMENT` | `production` |
+| `AUTH_PASSWORD_RSA_PRIVATE_KEY_PEM` | 必填；登录/注册依赖 RSA-OAEP + AES-GCM 解密 |
+| `AUTH_COOKIE_SECURE` | `true`（HTTPS） |
+| `SECRET_KEY` | 非默认值，至少 32 字符 |
+
+### 生成 RSA 私钥
+
+在 `backend/` 目录执行：
+
+```bash
+# 输出可直接写入 .env 的一行
+uv run python scripts/generate_password_rsa_key.py
+
+# 仅输出转义后的 PEM（适合 CI / GitHub Secrets）
+uv run python scripts/generate_password_rsa_key.py --format value
+
+# 输出原始 PEM 文件
+uv run python scripts/generate_password_rsa_key.py --format pem > password_rsa.pem
+```
+
+写入 `.env` 或容器环境变量时，推荐使用单行转义格式：
+
+```env
+AUTH_PASSWORD_RSA_PRIVATE_KEY_PEM="-----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY-----"
+```
+
+### 部署检查清单
+
+1. 执行数据库迁移：`uv run alembic upgrade head`（含 `password_cipher_nonces` 表）。
+2. 为所有 API 实例注入**相同**的 `AUTH_PASSWORD_RSA_PRIVATE_KEY_PEM`（多副本须共享同一密钥）。
+3. 通过 Secret Manager / GitHub Actions Secrets 注入，勿将私钥提交到仓库。
+4. 确认前端仅调用 `/api/v1/auth/login`、`/api/v1/auth/register`（传输 `password_envelope`，无明文密码）。
+
+协议与字段说明见仓库文档：[docs/password-transport-encryption.md](../docs/password-transport-encryption.md)。
+
+### GitHub Actions 示例
+
+将生成的 PEM 存入仓库 Secret `AUTH_PASSWORD_RSA_PRIVATE_KEY_PEM`，在部署 job 中注入：
+
+```yaml
+env:
+  ENVIRONMENT: production
+  AUTH_PASSWORD_RSA_PRIVATE_KEY_PEM: ${{ secrets.AUTH_PASSWORD_RSA_PRIVATE_KEY_PEM }}
+  AUTH_COOKIE_SECURE: "true"
+```
+
+生产环境应使用长期固定的密钥；不要在每次 CI 构建时重新生成，除非有计划地轮换密钥。
 
 ## 目录结构
 
@@ -258,8 +322,9 @@ Docker 开发容器启动时会自动执行 `alembic upgrade head`。
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/v1/health` | 健康检查 |
-| POST | `/api/v1/auth/register` | 注册（query: username, password） |
-| POST | `/api/v1/auth/token` | 登录，返回 JWT |
+| GET | `/api/v1/auth/password-key` | 获取密码传输 RSA 公钥 |
+| POST | `/api/v1/auth/register` | 注册（JSON：`username` + `password_envelope`） |
+| POST | `/api/v1/auth/login` | 登录，返回 JWT（JSON：`username` + `password_envelope`） |
 | POST | `/api/v1/auth/logout` | 注销（Bearer token） |
 | GET | `/api/v1/auth/me` | 当前用户 |
 | GET | `/api/v1/auth/oauth/{github\|google}` | OAuth 授权跳转 |

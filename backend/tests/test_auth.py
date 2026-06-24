@@ -19,6 +19,7 @@ from backend.app.main import create_app
 from backend.app.models.oauth_account import OAuthAccount
 from backend.app.services.auth_service import AuthService
 from backend.app.services.oauth_service import OAuthService
+from backend.tests.auth_transport import login_user, register_user, seal_password_for_request
 
 
 @pytest.fixture
@@ -53,20 +54,18 @@ def test_health(client: TestClient) -> None:
     assert response.json() == {"status": "ok"}
 
 
-def test_register_login_me_logout_flow(client: TestClient) -> None:
-    register = client.post(
-        "/api/v1/auth/register",
-        params={"username": "traveler", "password": "secret123"},
-    )
-    assert register.status_code == 201
-    assert register.json()["message"] == "User registered successfully"
+def test_password_key_endpoint(client: TestClient) -> None:
+    response = client.get("/api/v1/auth/password-key")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["algorithm"] == "RSA-OAEP-256"
+    assert payload["cipher_suite"] == "AES-GCM"
+    assert payload["public_key"].startswith("-----BEGIN PUBLIC KEY-----")
 
-    login = client.post(
-        "/api/v1/auth/token",
-        data={"username": "traveler", "password": "secret123"},
-    )
-    assert login.status_code == 200
-    token_payload = login.json()
+
+def test_register_login_me_logout_flow(client: TestClient) -> None:
+    register_user(client, username="traveler", password="Secret123")
+    token_payload = login_user(client, username="traveler", password="Secret123")
     assert token_payload["token_type"] == "bearer"
     assert token_payload["access_token"]
 
@@ -94,18 +93,8 @@ def test_register_login_me_logout_flow(client: TestClient) -> None:
 
 
 def test_current_user_accepts_auth_cookie(client: TestClient) -> None:
-    register = client.post(
-        "/api/v1/auth/register",
-        params={"username": "cookie_user", "password": "secret123"},
-    )
-    assert register.status_code == 201
-
-    login = client.post(
-        "/api/v1/auth/token",
-        data={"username": "cookie_user", "password": "secret123"},
-    )
-    assert login.status_code == 200
-    token_payload = login.json()
+    register_user(client, username="cookie_user", password="Secret123")
+    token_payload = login_user(client, username="cookie_user", password="Secret123")
 
     client.cookies.set(AUTH_COOKIE_NAME, token_payload["access_token"])
     me = client.get("/api/v1/auth/me")
@@ -117,6 +106,24 @@ def test_current_user_accepts_auth_cookie(client: TestClient) -> None:
 
     me_after_logout = client.get("/api/v1/auth/me")
     assert me_after_logout.status_code == 401
+
+
+def test_login_rejects_replayed_password_envelope(client: TestClient) -> None:
+    register_user(client, username="replay_user", password="Secret123")
+    envelope = seal_password_for_request(client, "Secret123")
+
+    first = client.post(
+        "/api/v1/auth/login",
+        json={"username": "replay_user", "password_envelope": envelope},
+    )
+    assert first.status_code == 200
+
+    second = client.post(
+        "/api/v1/auth/login",
+        json={"username": "replay_user", "password_envelope": envelope},
+    )
+    assert second.status_code == 400
+    assert second.json()["detail"] == "Password envelope has already been used"
 
 
 def test_logout_revokes_oauth_authorization_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -137,7 +144,7 @@ def test_logout_revokes_oauth_authorization_tokens(monkeypatch: pytest.MonkeyPat
 
     try:
         auth_service = AuthService(db)
-        user = auth_service.register(username="oauth_user", password="secret123")
+        user = auth_service.register(username="oauth_user", password="Secret123")
         account = OAuthAccount(
             user_id=user.id,
             provider="github",
@@ -173,7 +180,7 @@ def test_desktop_oauth_code_is_single_use() -> None:
     try:
         auth_service = AuthService(db)
         oauth_service = OAuthService(db)
-        user = auth_service.register(username="desktop_user", password="secret123")
+        user = auth_service.register(username="desktop_user", password="Secret123")
 
         code = oauth_service._create_desktop_login_code(user)
         token = oauth_service.exchange_desktop_code(code)
@@ -184,6 +191,76 @@ def test_desktop_oauth_code_is_single_use() -> None:
     finally:
         db.close()
         Base.metadata.drop_all(bind=engine)
+
+
+def test_login_rejects_unregistered_user(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/auth/login",
+        json={
+            "username": "ghost",
+            "password_envelope": seal_password_for_request(client, "Secret123"),
+        },
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "User is not registered"
+
+
+def test_login_rejects_incorrect_password(client: TestClient) -> None:
+    register_user(client, username="traveler", password="Secret123")
+    response = client.post(
+        "/api/v1/auth/login",
+        json={
+            "username": "traveler",
+            "password_envelope": seal_password_for_request(client, "WrongPass1"),
+        },
+    )
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Incorrect password"
+
+
+def test_register_rejects_duplicate_username(client: TestClient) -> None:
+    register_user(client, username="duplicate", password="Secret123")
+    response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "username": "duplicate",
+            "password_envelope": seal_password_for_request(client, "Secret123"),
+        },
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Username already exists"
+
+
+def test_register_validates_payload(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "username": "ab",
+            "password_envelope": seal_password_for_request(client, "12345"),
+        },
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "password",
+    [
+        "Aa1",
+        "noupper123",
+        "NOLOWER123",
+        "NoDigits",
+        "Bad-Pass1",
+    ],
+)
+def test_register_rejects_invalid_password(client: TestClient, password: str) -> None:
+    response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "username": "valid_user",
+            "password_envelope": seal_password_for_request(client, password),
+        },
+    )
+    assert response.status_code == 400
 
 
 def test_openapi_available(client: TestClient) -> None:

@@ -6,6 +6,30 @@ from pydantic import BaseModel, ConfigDict, Field
 from backend.app.models.user import User
 
 
+class PasswordEnvelope(BaseModel):
+    key_id: str = Field(min_length=1, max_length=128)
+    wrapped_key: str = Field(min_length=1)
+    iv: str = Field(min_length=1)
+    ciphertext: str = Field(min_length=1)
+
+
+class PasswordKeyResponse(BaseModel):
+    key_id: str
+    public_key: str
+    algorithm: Literal["RSA-OAEP-256"] = "RSA-OAEP-256"
+    cipher_suite: Literal["AES-GCM"] = "AES-GCM"
+
+
+class LoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=50)
+    password_envelope: PasswordEnvelope
+
+
+class RegisterRequest(BaseModel):
+    username: str = Field(min_length=3, max_length=50)
+    password_envelope: PasswordEnvelope
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -14,11 +38,6 @@ class TokenResponse(BaseModel):
 
 class MessageResponse(BaseModel):
     message: str
-
-
-class RegisterRequest(BaseModel):
-    username: str = Field(min_length=3, max_length=50)
-    password: str = Field(min_length=6, max_length=128)
 
 
 class AuthUserResponse(BaseModel):

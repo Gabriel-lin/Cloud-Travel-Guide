@@ -5,6 +5,8 @@
  */
 import { concurrently, Logger } from "concurrently";
 
+import { getDevServerWaitTarget } from "./load-env.mjs";
+
 class QuietLogger extends Logger {
   /** "--> Sending SIGTERM to other processes.." */
   logGlobalEvent() {}
@@ -12,12 +14,14 @@ class QuietLogger extends Logger {
   logCommandEvent() {}
 }
 
+const devServerWaitTarget = getDevServerWaitTarget();
+
 const { result } = concurrently(
   [
     { command: "npm run dev:next", name: "next", prefixColor: "cyan" },
     { command: "npm run dev:electron", name: "vite", prefixColor: "magenta" },
     {
-      command: "wait-on tcp:127.0.0.1:3000 && electron .",
+      command: `wait-on ${devServerWaitTarget} && electron .`,
       name: "app",
       prefixColor: "green",
     },

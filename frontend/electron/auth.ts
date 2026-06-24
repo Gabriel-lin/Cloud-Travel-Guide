@@ -4,10 +4,8 @@ import { execFileSync } from "node:child_process";
 
 import { app, BrowserWindow, ipcMain, safeStorage, shell } from "electron";
 
-import { AUTH_IPC, DESKTOP_OAUTH_REDIRECT_URI } from "./auth-ipc";
-
-const APP_PROTOCOL = "cloud-travel-guide";
-const APP_NAME = "Cloud Travel Guide";
+import { APP_NAME, APP_PROTOCOL, DESKTOP_OAUTH_REDIRECT_URI } from "@/config/app";
+import { AUTH_IPC } from "./auth-ipc";
 
 type TokenFile = {
   encoding: "encrypted" | "plain";
@@ -61,25 +59,34 @@ function isOAuthCallbackUrl(value: string): boolean {
   return value.startsWith(DESKTOP_OAUTH_REDIRECT_URI);
 }
 
+/** Run reg.exe without inheriting stderr (avoids GBK garble in Git Bash / UTF-8 terminals). */
+function runReg(args: string[]): void {
+  execFileSync("reg", args, { windowsHide: true, stdio: "ignore" });
+}
+
 function writeWindowsProtocolMetadata(): void {
   if (process.platform !== "win32") return;
 
   const protocolKey = `HKCU\\Software\\Classes\\${APP_PROTOCOL}`;
+  const exeBasename = path.basename(process.execPath);
+  const applicationsKey = `HKCU\\Software\\Classes\\Applications\\${exeBasename}`;
+  const muiCacheKey =
+    "HKCU\\Software\\Classes\\Local Settings\\Software\\Microsoft\\Windows\\Shell\\MuiCache";
+  const muiCacheValue = `${process.execPath}.FriendlyAppName`;
+
   try {
-    execFileSync("reg", ["add", protocolKey, "/ve", "/d", `URL:${APP_NAME}`, "/f"], {
-      windowsHide: true,
-    });
-    execFileSync("reg", ["add", protocolKey, "/v", "FriendlyTypeName", "/d", APP_NAME, "/f"], {
-      windowsHide: true,
-    });
-    execFileSync("reg", ["add", protocolKey, "/v", "ApplicationName", "/d", APP_NAME, "/f"], {
-      windowsHide: true,
-    });
-    execFileSync(
-      "reg",
-      ["add", `${protocolKey}\\shell\\open`, "/ve", "/d", `Open ${APP_NAME}`, "/f"],
-      { windowsHide: true },
-    );
+    // Chrome/Edge read ASSOCSTR_FRIENDLYAPPNAME from Applications\{exe}\FriendlyAppName.
+    // In dev this is electron.exe; without this entry the dialog shows "Electron".
+    runReg(["add", applicationsKey, "/v", "FriendlyAppName", "/d", APP_NAME, "/f"]);
+    runReg(["add", protocolKey, "/ve", "/d", `URL:${APP_NAME}`, "/f"]);
+    runReg(["add", protocolKey, "/v", "FriendlyTypeName", "/d", APP_NAME, "/f"]);
+    runReg(["add", protocolKey, "/v", "ApplicationName", "/d", APP_NAME, "/f"]);
+    runReg(["add", `${protocolKey}\\shell\\open`, "/ve", "/d", `Open ${APP_NAME}`, "/f"]);
+    try {
+      runReg(["delete", muiCacheKey, "/v", muiCacheValue, "/f"]);
+    } catch {
+      // Windows may not have cached a friendly name yet.
+    }
   } catch {
     // Protocol metadata is cosmetic; OAuth still works if this fails.
   }

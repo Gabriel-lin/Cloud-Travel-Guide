@@ -16,38 +16,66 @@ import type {
 } from "./types";
 import { toAuthSession } from "./types";
 import type { ServiceRequestConfig } from "@/service/base";
+import {
+  fetchPasswordKey,
+  sealPassword,
+  type PasswordEnvelope,
+  type PasswordKeyResponse,
+} from "@/lib/auth/password-cipher";
 
 const AUTH_PREFIX = `${API_V1_PREFIX}/auth`;
 
+async function getPasswordTransportKey(): Promise<PasswordKeyResponse> {
+  return fetchPasswordKey(() =>
+    get<PasswordKeyResponse>(`${AUTH_PREFIX}/password-key`, {
+      skipAuth: true,
+    }),
+  );
+}
+
+async function sealCredential(password: string): Promise<PasswordEnvelope> {
+  const key = await getPasswordTransportKey();
+  return sealPassword(key, password);
+}
+
 /** 认证相关接口 */
 export const authService = {
-  /** POST /api/v1/auth/token — 用户名密码登录 */
-  async login(payload: LoginPayload) {
-    const body = new URLSearchParams({
-      username: payload.username,
-      password: payload.password,
-    });
+  /** GET /api/v1/auth/password-key — 获取密码传输公钥 */
+  getPasswordKey() {
+    return getPasswordTransportKey();
+  },
 
-    const result = await post<TokenResponse>(`${AUTH_PREFIX}/token`, body, {
-      skipAuth: true,
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
+  /** POST /api/v1/auth/login — 加密凭证登录 */
+  async login(payload: LoginPayload) {
+    const result = await post<TokenResponse>(
+      `${AUTH_PREFIX}/login`,
+      {
+        username: payload.username,
+        password_envelope: await sealCredential(payload.password),
       },
-    });
+      {
+        skipAuth: true,
+        skipErrorLog: true,
+      },
+    );
 
     setAccessToken(result.access_token);
     return toAuthSession(result);
   },
 
-  /** POST /api/v1/auth/register — 用户注册 */
-  register(payload: RegisterPayload) {
-    return post<MessageResponse>(`${AUTH_PREFIX}/register`, null, {
-      skipAuth: true,
-      params: {
+  /** POST /api/v1/auth/register — 加密凭证注册 */
+  async register(payload: RegisterPayload) {
+    return post<MessageResponse>(
+      `${AUTH_PREFIX}/register`,
+      {
         username: payload.username,
-        password: payload.password,
+        password_envelope: await sealCredential(payload.password),
       },
-    });
+      {
+        skipAuth: true,
+        skipErrorLog: true,
+      },
+    );
   },
 
   /** POST /api/v1/auth/logout — 退出登录 */
@@ -108,3 +136,4 @@ export const authService = {
     clearAccessToken();
   },
 };
+

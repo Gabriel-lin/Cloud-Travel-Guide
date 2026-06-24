@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 
-import { cn } from "@/lib/utils";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -8,6 +7,8 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
+import { APP_NAME } from "@/config/app";
+import { cn } from "@/lib/utils";
 
 export type ModulePageProps = {
   title: string;
@@ -58,7 +59,7 @@ export function ModulePage({
             <Breadcrumb className="flex w-full items-center">
               <BreadcrumbList className="items-center">
                 <BreadcrumbItem>
-                  <span className="text-ink-400">Cloud Travel Guide</span>
+                  <span className="text-ink-400">{APP_NAME}</span>
                 </BreadcrumbItem>
                 <BreadcrumbSeparator />
                 <BreadcrumbItem>
