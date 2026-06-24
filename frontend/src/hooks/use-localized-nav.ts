@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 
+import { APP_NAME } from "@/config/app";
 import { useAppLocale } from "@/hooks/use-app-locale";
 import {
   APP_NAV_ITEMS,
@@ -41,7 +42,7 @@ export function useLocalizedNavItems() {
       brand: {
         title: t("nav.brand.title"),
         subtitle: t("nav.brand.subtitle"),
-        tooltip: t("nav.brand.tooltip"),
+        tooltip: APP_NAME,
       },
       groupLabel: t("nav.groupLabel"),
     };

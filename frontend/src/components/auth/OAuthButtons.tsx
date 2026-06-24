@@ -1,5 +1,6 @@
 "use client";
 
+import { DESKTOP_OAUTH_REDIRECT_URI } from "@/config/app";
 import { authService, type OAuthProvider } from "@/service/auth";
 import { Button } from "@/components/ui/button";
 import { useAppLocale } from "@/hooks/use-app-locale";
@@ -7,7 +8,6 @@ import { getElectronAPI, isElectronRuntime } from "@/lib/electron";
 import { GitHubIcon, GoogleIcon } from "./oauth-icons";
 
 const OAUTH_CALLBACK_PATH = "/auth/callback";
-const DESKTOP_OAUTH_REDIRECT_URI = "cloud-travel-guide://auth/callback";
 
 function getOAuthRedirectUri() {
   if (typeof window === "undefined") return "";

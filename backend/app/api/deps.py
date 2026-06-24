@@ -10,8 +10,9 @@ from backend.app.core.exceptions import UnauthorizedError
 from backend.app.models.user import User
 from backend.app.services.auth_service import AuthService
 from backend.app.services.oauth_service import OAuthService
+from backend.app.services.password_cipher_service import PasswordCipherService
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token", auto_error=False)
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 
 
 def get_auth_service(db: Annotated[Session, Depends(get_db)]) -> AuthService:
@@ -20,6 +21,12 @@ def get_auth_service(db: Annotated[Session, Depends(get_db)]) -> AuthService:
 
 def get_oauth_service(db: Annotated[Session, Depends(get_db)]) -> OAuthService:
     return OAuthService(db)
+
+
+def get_password_cipher_service(
+    db: Annotated[Session, Depends(get_db)],
+) -> PasswordCipherService:
+    return PasswordCipherService(db)
 
 
 def get_current_token(

@@ -7,13 +7,14 @@ import { LocaleBootstrapScript } from "@/components/locale-bootstrap-script";
 import { ThemeBootstrapScript } from "@/components/theme-bootstrap-script";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { APP_DESCRIPTION, APP_NAME } from "@/config/app";
 import { cn } from "@/lib/utils";
 
 const geist = Geist({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
-  title: "Cloud Travel Guide",
-  description: "智能旅行规划与导览桌面应用",
+  title: APP_NAME,
+  description: APP_DESCRIPTION,
 };
 
 export default function RootLayout({

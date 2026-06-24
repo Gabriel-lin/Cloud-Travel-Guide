@@ -2,7 +2,7 @@ import { create } from "zustand";
 
 import { ApiError, setAccessToken } from "@/service/base";
 import { authService } from "@/service/auth";
-import type { AuthSession, AuthUser, LoginPayload } from "@/service/auth";
+import type { AuthSession, AuthUser, LoginPayload, RegisterPayload } from "@/service/auth";
 import { getAccessToken } from "@/service/base";
 
 export type AuthStatus = "idle" | "loading" | "authenticated" | "anonymous";
@@ -14,6 +14,7 @@ export type AuthStore = {
   session: AuthSession | null;
   error: string | null;
   login: (payload: LoginPayload) => Promise<void>;
+  register: (payload: RegisterPayload) => Promise<void>;
   logout: () => Promise<void>;
   hydrate: () => Promise<void>;
   clearError: () => void;
@@ -48,16 +49,41 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
         error: null,
       });
     } catch (error) {
-      const message =
-        error instanceof ApiError ? error.message : "Login failed";
-
       authService.clearSession();
       set({
         ready: true,
         status: "anonymous",
         user: null,
         session: null,
-        error: message,
+        error: null,
+      });
+      throw error;
+    }
+  },
+
+  register: async (payload) => {
+    set({ status: "loading", error: null });
+
+    try {
+      await authService.register(payload);
+      const session = await authService.login(payload);
+      const user = await authService.getCurrentUser();
+
+      set({
+        ready: true,
+        status: "authenticated",
+        user,
+        session,
+        error: null,
+      });
+    } catch (error) {
+      authService.clearSession();
+      set({
+        ready: true,
+        status: "anonymous",
+        user: null,
+        session: null,
+        error: null,
       });
       throw error;
     }

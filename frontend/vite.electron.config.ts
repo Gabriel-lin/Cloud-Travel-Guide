@@ -3,9 +3,15 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build, defineConfig, type Plugin } from "vite";
 
+import { resolvePublicEnv, toProcessEnvDefine } from "./src/config/resolve-env";
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const electronDir = path.resolve(__dirname, "electron");
 const isProduction = process.env.NODE_ENV === "production";
+
+function createAppEnvDefine(mode: string): Record<string, string> {
+  return toProcessEnvDefine(resolvePublicEnv(mode, __dirname));
+}
 
 /**
  * 将 electron/*.ts 均作为入口，输出同名 .js（新增文件无需改配置）。
@@ -35,7 +41,7 @@ function getElectronRollupInput(): Record<string, string> {
  * 共享 chunk，因此不能作为多入口之一（rollup 会抽公共 chunk），
  * 必须嵌套一次单入口构建，打成自包含单文件。
  */
-function buildPreloadPlugin(): Plugin {
+function buildPreloadPlugin(appEnvDefine: Record<string, string>): Plugin {
   return {
     name: "build-preload",
     buildStart() {
@@ -47,6 +53,7 @@ function buildPreloadPlugin(): Plugin {
         configFile: false,
         publicDir: false,
         logLevel: "warn",
+        define: appEnvDefine,
         resolve: {
           alias: {
             "@": path.resolve(__dirname, "src"),
@@ -76,29 +83,34 @@ function buildPreloadPlugin(): Plugin {
   };
 }
 
-export default defineConfig({
-  plugins: [buildPreloadPlugin()],
-  publicDir: false,
-  resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "src"),
-    },
-  },
-  build: {
-    ssr: true,
-    outDir: "build/electron",
-    /** 开发时与 preload watch 并行写同一目录，避免互相清空 */
-    emptyOutDir: isProduction,
-    minify: isProduction,
-    sourcemap: !isProduction,
-    target: "node22",
-    rollupOptions: {
-      input: getElectronRollupInput(),
-      output: {
-        format: "cjs",
-        entryFileNames: "[name].js",
+export default defineConfig(({ mode }) => {
+  const appEnvDefine = createAppEnvDefine(mode);
+
+  return {
+    plugins: [buildPreloadPlugin(appEnvDefine)],
+    define: appEnvDefine,
+    publicDir: false,
+    resolve: {
+      alias: {
+        "@": path.resolve(__dirname, "src"),
       },
-      external: ["electron"],
     },
-  },
+    build: {
+      ssr: true,
+      outDir: "build/electron",
+      /** 开发时与 preload watch 并行写同一目录，避免互相清空 */
+      emptyOutDir: isProduction,
+      minify: isProduction,
+      sourcemap: !isProduction,
+      target: "node22",
+      rollupOptions: {
+        input: getElectronRollupInput(),
+        output: {
+          format: "cjs",
+          entryFileNames: "[name].js",
+        },
+        external: ["electron"],
+      },
+    },
+  };
 });

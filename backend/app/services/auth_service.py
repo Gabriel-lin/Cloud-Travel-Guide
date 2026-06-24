@@ -13,8 +13,10 @@ from backend.app.core.constants import AuthProvider
 from backend.app.core.exceptions import (
     BadRequestError,
     ConflictError,
+    NotFoundError,
     UnauthorizedError,
 )
+from backend.app.core.password_policy import validate_register_password
 from backend.app.core.security import (
     create_access_token,
     decode_access_token,
@@ -37,6 +39,7 @@ class AuthService:
         self._oauth = OAuthRepository(db)
 
     def register(self, *, username: str, password: str) -> User:
+        validate_register_password(password)
         if self._users.username_exists(username):
             raise ConflictError("Username already exists")
 
@@ -63,8 +66,10 @@ class AuthService:
 
     def login(self, *, username: str, password: str) -> TokenResponse:
         user = self._users.get_by_username(username)
-        if not user or not verify_password(password, user.password_hash):
-            raise UnauthorizedError("Incorrect username or password")
+        if not user:
+            raise NotFoundError("User is not registered")
+        if not verify_password(password, user.password_hash):
+            raise UnauthorizedError("Incorrect password")
         return self.issue_token(user)
 
     def logout(self, token: str) -> None:

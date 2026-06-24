@@ -4,6 +4,8 @@ from typing import Annotated, Literal
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from backend.app.core.password_rsa_key import normalize_pem_from_env
+
 OAuthProvider = Literal["github", "google"]
 DEFAULT_SECRET_KEY = "change-me-in-production-use-openssl-rand-hex-32"
 AUTH_COOKIE_NAME = "ctg_access_token"
@@ -46,6 +48,14 @@ class Settings(BaseSettings):
         default=120,
         alias="DESKTOP_OAUTH_CODE_EXPIRE_SECONDS",
     )
+    auth_password_rsa_private_key_pem: str | None = Field(
+        default=None,
+        alias="AUTH_PASSWORD_RSA_PRIVATE_KEY_PEM",
+    )
+    auth_password_envelope_ttl_seconds: int = Field(
+        default=60,
+        alias="AUTH_PASSWORD_ENVELOPE_TTL_SECONDS",
+    )
 
     cors_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: LOCAL_FRONTEND_ORIGINS.copy(),
@@ -78,6 +88,11 @@ class Settings(BaseSettings):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
         return value
 
+    @field_validator("auth_password_rsa_private_key_pem", mode="before")
+    @classmethod
+    def normalize_auth_password_rsa_private_key_pem(cls, value: str | None) -> str | None:
+        return normalize_pem_from_env(value)
+
     @model_validator(mode="after")
     def validate_security_settings(self) -> "Settings":
         if self.access_token_expire_minutes <= 0:
@@ -92,6 +107,10 @@ class Settings(BaseSettings):
             raise ValueError("SECRET_KEY must be a non-default value of at least 32 characters")
         if production and not self.auth_cookie_secure:
             raise ValueError("AUTH_COOKIE_SECURE must be enabled in production")
+        if production and not self.auth_password_rsa_private_key_pem:
+            raise ValueError("AUTH_PASSWORD_RSA_PRIVATE_KEY_PEM is required in production")
+        if self.auth_password_envelope_ttl_seconds <= 0:
+            raise ValueError("AUTH_PASSWORD_ENVELOPE_TTL_SECONDS must be greater than 0")
         if production and ("*" in self.cors_origins or "*" in self.oauth_redirect_origins):
             raise ValueError("Wildcard origins are not allowed in production")
 

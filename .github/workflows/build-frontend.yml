@@ -24,6 +24,10 @@ jobs:
         working-directory: frontend
     env:
       CI: true
+      # Override per environment via GitHub Actions variables/secrets, e.g.:
+      # NEXT_PUBLIC_APP_NAME: Cloud Travel Guide Staging
+      # NEXT_PUBLIC_API_BASE_URL: https://api.example.com
+      # NEXT_PUBLIC_DESKTOP_OAUTH_REDIRECT_URI: cloud-travel-guide-staging://auth/callback
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -42,6 +46,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Load frontend environment
+        run: cp -n .env.example .env
+
       - name: Lint
         run: npm run lint
 
@@ -59,6 +66,6 @@ jobs:
         uses: actions/upload-artifact@v4
         if: success()
         with:
-          name: electron-build-${{ matrix.os }}
+          name: Cloud-Travel-Guide-${{ matrix.os }}
           path: frontend/dist/
           if-no-files-found: error
