@@ -1,11 +1,11 @@
-appId: ${env.NEXT_PUBLIC_APP_ID}
-productName: ${env.NEXT_PUBLIC_APP_NAME}
-copyright: Copyright © 2026 ${env.NEXT_PUBLIC_APP_NAME}
+appId: com.cloudtravelguide.app
+productName: Cloud Travel Guide
+copyright: Copyright © 2026 Cloud Travel Guide
 
 protocols:
-  - name: ${env.NEXT_PUBLIC_APP_NAME} OAuth
+  - name: Cloud Travel Guide OAuth
     schemes:
-      - ${env.NEXT_PUBLIC_APP_PROTOCOL}
+      - cloud-travel-guide
 
 directories:
   output: dist
