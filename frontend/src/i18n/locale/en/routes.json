@@ -2,16 +2,82 @@
   "silkRoad": {
     "title": "Silk Road",
     "region": "Central Asia · China",
-    "summary": "Ancient trade routes, desert cities, and cross-cultural heritage."
+    "summary": "Ancient trade routes, desert cities, and cross-cultural heritage.",
+    "stops": {
+      "xian": "Xi'an",
+      "lanzhou": "Lanzhou",
+      "dunhuang": "Dunhuang",
+      "turpan": "Turpan",
+      "kashgar": "Kashgar"
+    }
   },
   "sichuanTibet": {
     "title": "Sichuan–Tibet South Route",
     "region": "Southwest China",
-    "summary": "High-altitude peaks, Tibetan culture, and iconic overland scenery."
+    "summary": "High-altitude peaks, Tibetan culture, and iconic overland scenery.",
+    "stops": {
+      "chengdu": "Chengdu",
+      "kangding": "Kangding",
+      "litang": "Litang",
+      "nyingchi": "Nyingchi",
+      "lhasa": "Lhasa"
+    }
   },
   "mediterranean": {
     "title": "Mediterranean Circuit",
     "region": "Europe · North Africa",
-    "summary": "Coastal towns, Renaissance heritage, and slow Mediterranean travel."
+    "summary": "Coastal towns, Renaissance heritage, and slow Mediterranean travel.",
+    "stops": {
+      "barcelona": "Barcelona",
+      "marseille": "Marseille",
+      "rome": "Rome",
+      "athens": "Athens",
+      "istanbul": "Istanbul"
+    }
+  },
+  "card": {
+    "enter": "Enter route"
+  },
+  "experience": {
+    "back": "Back to routes",
+    "toolbar": {
+      "view": "View",
+      "firstPerson": "First-person view",
+      "thirdPerson": "Third-person view",
+      "tool": "Pointer tool",
+      "cursor": "Cursor · click & select",
+      "hand": "Hand · drag the canvas",
+      "lighting": "Lighting",
+      "day": "Day mode",
+      "night": "Night mode",
+      "autoTour": "Auto tour",
+      "autoTourActive": "Stop tour"
+    },
+    "scene": {
+      "title": "3D scene",
+      "rendererError": "3D renderer failed to start. Please make sure your browser supports WebGPU or WebGL2.",
+      "controls": "Click to enter · V walk/fly · WASD move · Space jump · Shift sprint",
+      "boot": {
+        "idle": "Initializing",
+        "fetchingDem": "Downloading elevation data",
+        "fetchingOsm": "Fetching map vector data",
+        "gpuBake": "Baking terrain on GPU",
+        "building": "Building the scene",
+        "ready": "Ready",
+        "error": "Scene failed to initialize"
+      }
+    },
+    "panel": {
+      "title": "Scene details",
+      "empty": "Select a stop along the route to view its scene video and cultural history.",
+      "videoTab": "Scene video",
+      "historyTab": "Culture & history",
+      "comingSoon": "Content coming soon"
+    },
+    "miniMap": {
+      "title": "Route overview",
+      "placeholder": "2D route map",
+      "stops": "{count} stops"
+    }
   }
 }
