@@ -2,16 +2,82 @@
   "silkRoad": {
     "title": "丝绸之路",
     "region": "中亚 · 中国",
-    "summary": "千年商道与人文遗迹，沙漠、古城与多元文化交汇。"
+    "summary": "千年商道与人文遗迹，沙漠、古城与多元文化交汇。",
+    "stops": {
+      "xian": "西安",
+      "lanzhou": "兰州",
+      "dunhuang": "敦煌",
+      "turpan": "吐鲁番",
+      "kashgar": "喀什"
+    }
   },
   "sichuanTibet": {
     "title": "川藏南线",
     "region": "中国西南",
-    "summary": "高原雪山、藏地人文与极致地貌的经典自驾路线。"
+    "summary": "高原雪山、藏地人文与极致地貌的经典自驾路线。",
+    "stops": {
+      "chengdu": "成都",
+      "kangding": "康定",
+      "litang": "理塘",
+      "nyingchi": "林芝",
+      "lhasa": "拉萨"
+    }
   },
   "mediterranean": {
     "title": "环地中海",
     "region": "欧洲 · 北非",
-    "summary": "碧海古城、文艺复兴遗产与地中海沿岸慢旅行。"
+    "summary": "碧海古城、文艺复兴遗产与地中海沿岸慢旅行。",
+    "stops": {
+      "barcelona": "巴塞罗那",
+      "marseille": "马赛",
+      "rome": "罗马",
+      "athens": "雅典",
+      "istanbul": "伊斯坦布尔"
+    }
+  },
+  "card": {
+    "enter": "进入路线"
+  },
+  "experience": {
+    "back": "返回路线",
+    "toolbar": {
+      "view": "视角",
+      "firstPerson": "第一人称视角",
+      "thirdPerson": "第三人称视角",
+      "tool": "操作工具",
+      "cursor": "光标 · 点击选择",
+      "hand": "抓手 · 拖动画布",
+      "lighting": "光照",
+      "day": "白天模式",
+      "night": "夜晚模式",
+      "autoTour": "自动导览",
+      "autoTourActive": "结束导览"
+    },
+    "scene": {
+      "title": "三维场景",
+      "rendererError": "3D 渲染器初始化失败，请确认浏览器支持 WebGPU 或 WebGL2",
+      "controls": "点击进入场景 · V 切换行走/飞行 · WASD 移动 · Space 跳跃 · Shift 疾跑",
+      "boot": {
+        "idle": "正在初始化",
+        "fetchingDem": "下载高程数据",
+        "fetchingOsm": "拉取地图矢量数据",
+        "gpuBake": "GPU 地形烘焙",
+        "building": "构建场景",
+        "ready": "完成",
+        "error": "场景初始化失败"
+      }
+    },
+    "panel": {
+      "title": "场景详情",
+      "empty": "在路线上选择一个站点，查看场景视频与历史人文介绍。",
+      "videoTab": "场景视频",
+      "historyTab": "历史人文",
+      "comingSoon": "内容即将上线"
+    },
+    "miniMap": {
+      "title": "路线俯视图",
+      "placeholder": "2D 路线地图",
+      "stops": "{count} 个站点"
+    }
   }
 }
