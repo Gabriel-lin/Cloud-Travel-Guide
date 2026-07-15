@@ -115,7 +115,7 @@ export function rasterizeMasks(
   const scrubM = get("scrub");
   const grass = get("grass");
   const wetland = get("wetland");
-  // 草地并入灌丛底密度(低强度)
+  // 草地兼作灌丛底密度(低强度);grass 本身独立输出驱动草毯
   for (let i = 0; i < scrubM.length; i++) {
     scrubM[i] = Math.max(scrubM[i] as number, (grass[i] as number) * 0.5);
   }
@@ -140,5 +140,6 @@ export function rasterizeMasks(
     sand,
     scrub: scrubM,
     wetland,
+    grass,
   };
 }

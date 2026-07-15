@@ -161,6 +161,7 @@ export function biomeCpu(
       const fSand = clamp01((masks.sand[i] as number) + edge * 0.5);
       const fWet = clamp01(masks.wetland[i] as number);
       const fScrub = clamp01(masks.scrub[i] as number);
+      const fGrass = clamp01((masks.grass[i] as number) + edge * 0.6);
 
       const arid = smooth(0.12, 0.03, moist) * smooth(14, 24, temp);
       const desertK = clamp01(fSand + arid * 0.8);
@@ -169,6 +170,10 @@ export function biomeCpu(
 
       let id: number = BIOME.meadow;
       let v = 0.14 + jitter * 0.06;
+      // OSM 草地/牧场多边形:面积内草密度大幅抬升(与 GPU 路径一致)
+      if (fGrass > 0.25) {
+        v = clamp01(0.45 + fGrass * 0.5);
+      }
       if (alpineK > 0.5) {
         id = BIOME.alpine;
         v = clamp01(0.06 - snowK * 0.05);

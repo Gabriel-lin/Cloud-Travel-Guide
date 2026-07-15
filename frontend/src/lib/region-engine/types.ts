@@ -94,6 +94,8 @@ export type RegionMasks = {
   sand: Float32Array;
   scrub: Float32Array;
   wetland: Float32Array;
+  /** OSM 草地/牧场(landuse=meadow|grass, natural=grassland)0..1 */
+  grass: Float32Array;
 };
 
 /** boot 完成后的世界数据(渲染与交互共用) */

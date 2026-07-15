@@ -30,6 +30,8 @@ import type { RouteExperienceConfig, RouteToolbarState } from "./types";
 export type RouteSceneProps = {
   config: RouteExperienceConfig;
   state: RouteToolbarState;
+  /** 当前站点下标（俯视图选中,场景加载该站点的真实地理区域） */
+  activeStopIndex?: number;
   /** 场景内交互(V 键切换模式)同步回工具栏 */
   onStateChange?: (patch: Partial<RouteToolbarState>) => void;
 };
@@ -144,13 +146,18 @@ const BOOT_LABEL_KEYS: Record<BootProgress["status"], string> = {
  * DEM 地形 + OSM 水系/建筑/土地利用 + 程序化植被/天空/云/粒子。
  * 工具栏映射:第一人称 → walk(贴地),第三人称 → fly;Sun/Moon → 昼夜。
  */
-export function RouteScene({ config, state, onStateChange }: RouteSceneProps) {
+export function RouteScene({
+  config,
+  state,
+  activeStopIndex = 0,
+  onStateChange,
+}: RouteSceneProps) {
   const { t } = useAppLocale();
   const [progress, setProgress] = useState<BootProgress>({ status: "idle", value: 0 });
   // 质量分档:掉帧时降低渲染分辨率上限(low),恢复后升回(high)
   const [dprMax, setDprMax] = useState(1.5);
 
-  const stop = config.stops[0];
+  const stop = config.stops[activeStopIndex] ?? config.stops[0];
   const params = useMemo<RegionParams>(
     () => ({
       lat: stop?.coord.lat ?? 30.57,

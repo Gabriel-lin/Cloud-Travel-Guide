@@ -36,6 +36,11 @@ import { CHUNK_SIZE, TREE_FAR_DIST, TREE_MESH_DIST } from "../const";
 import type { NF, NV4 } from "../gpu/tsl-types";
 import type { EnvState } from "../render/env";
 import {
+  bakeBarkTextures,
+  type BarkStyleKey,
+  type BarkTextures,
+} from "../render/barkSynth";
+import {
   buildVegPool,
   makeVegInstances,
   type VegInstances,
@@ -117,16 +122,28 @@ export class Vegetation {
     this.size = world.size;
   }
 
-  /** 烘图集 + 建几何 + 烘 impostor + 建实例池(boot 一次) */
+  /** 烘图集 + 树皮贴图 + 建几何 + 烘 impostor + 建实例池(boot 一次) */
   async init(): Promise<void> {
+    // 树皮双贴图按风格缓存(多个树种共享同一风格时只烘一次)
+    const barkCache = new Map<BarkStyleKey, BarkTextures>();
+    const barkFor = async (style: BarkStyleKey): Promise<BarkTextures> => {
+      let tex = barkCache.get(style);
+      if (!tex) {
+        tex = await bakeBarkTextures(this.renderer, style, style.length * 13.7);
+        barkCache.set(style, tex);
+      }
+      return tex;
+    };
+
     for (const [speciesId, layer] of this.scatter.trees) {
       if (layer.count === 0) continue;
       const sp = TREE_SPECIES[speciesId];
 
-      // 1. 叶簇图集(每树种一次)
+      // 1. 叶簇图集(每树种一次)+ 树皮贴图(每风格一次)
       const atlas = await captureFoliageAtlas(
         this.renderer, sp, makeRng(speciesId.length * 733 + 41),
       );
+      const barkTex = await barkFor(sp.barkStyle);
 
       // 2. 结构变体 + 近景池
       const variants: BuiltTree[] = [];
@@ -134,22 +151,23 @@ export class Vegetation {
       for (let v = 0; v < VARIANTS_PER_SPECIES; v++) {
         const built = buildTreeGeometry(sp, v * 7919 + speciesId.length * 131 + 17);
         variants.push(built);
-        pools.push(this.makeNearPool(built, atlas, TREE_POOL_CAP, sp, true));
+        pools.push(this.makeNearPool(built, atlas, barkTex, TREE_POOL_CAP, sp, true));
       }
       this.layers.push({ layer, pools, radius: TREE_MESH_DIST });
 
       // 3. 远景 impostor(变体 0 烘焙,宽高取几何真实包围盒)
       const v0 = variants[0] as BuiltTree;
-      await this.makeImpostors(v0, atlas, layer, TREE_MESH_DIST, TREE_FAR_DIST);
+      await this.makeImpostors(v0, atlas, barkTex, layer, TREE_MESH_DIST, TREE_FAR_DIST);
     }
 
     // 灌木(同一套图集卡片方案)
     if (this.scatter.shrubs.count > 0) {
       const atlas = await captureFoliageAtlas(this.renderer, SHRUB, makeRng(9127));
+      const barkTex = await barkFor(SHRUB.barkStyle);
       const pools: NearPool[] = [];
       for (let v = 0; v < VARIANTS_PER_SPECIES; v++) {
         const built = buildTreeGeometry(SHRUB, v * 5417 + 907);
-        pools.push(this.makeNearPool(built, atlas, SHRUB_POOL_CAP, SHRUB, false));
+        pools.push(this.makeNearPool(built, atlas, barkTex, SHRUB_POOL_CAP, SHRUB, false));
       }
       this.layers.push({ layer: this.scatter.shrubs, pools, radius: SHRUB_MESH_DIST });
     }
@@ -180,6 +198,7 @@ export class Vegetation {
   private makeNearPool(
     built: BuiltTree,
     atlas: Texture,
+    barkTex: BarkTextures,
     capacity: number,
     sp: SpeciesParams,
     castShadow: boolean,
@@ -191,8 +210,7 @@ export class Vegetation {
       windAmp: windAmp * 0.7,
       flutterAmp: 0,
       leafK: 0,
-      barkStyle: sp.barkStyle,
-      barkSeed: sp.id.length * 17,
+      barkTex,
     });
     const barkMesh = new InstancedMesh(barkPool.geometry, barkPool.material, capacity);
 
@@ -218,11 +236,12 @@ export class Vegetation {
   private async makeImpostors(
     built: BuiltTree,
     atlas: Texture,
+    barkTex: BarkTextures,
     layer: ScatterLayer,
     nearDist: number,
     farDist: number,
   ): Promise<void> {
-    const bake = await bakeImpostor(this.renderer, built.bark, built.cards, atlas);
+    const bake = await bakeImpostor(this.renderer, built.bark, built.cards, atlas, barkTex);
     const quad = new PlaneGeometry(1, 1);
     quad.translate(0, 0.5, 0); // 底部锚定
 

@@ -30,6 +30,10 @@ export const SNOWLINE_ALT = 4400;
 export const TERRARIUM_URL = (z: number, x: number, y: number): string =>
   `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`;
 
+/** Esri World Imagery 卫星影像瓦片(外围衔接层背景;注意 y 在 x 前) */
+export const ESRI_IMAGERY_URL = (z: number, x: number, y: number): string =>
+  `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`;
+
 /** Overpass API 端点(依次重试) */
 export const OVERPASS_ENDPOINTS = [
   "https://overpass-api.de/api/interpreter",

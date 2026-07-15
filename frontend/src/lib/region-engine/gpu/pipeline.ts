@@ -188,6 +188,7 @@ export async function runWorldPipeline(opts: {
         sand: masks.sand,
         wetland: masks.wetland,
         scrub: masks.scrub,
+        grass: masks.grass,
       },
       res,
       size,

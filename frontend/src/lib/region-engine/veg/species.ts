@@ -9,7 +9,7 @@
  * 高海拔站点自动启用高山杉,干旱站点启用梭梭 —— 由散布器按生物群系选择。
  */
 
-import type { BarkStyleKey } from "../render/barkMaterial";
+import type { BarkStyleKey } from "../render/barkSynth";
 
 /** 树冠包络:按子枝在母枝上的位置缩放子枝长度 */
 export type CrownShape = "cone" | "ellipsoid" | "dome" | "column" | "irregular";
@@ -209,7 +209,7 @@ export const TREE_SPECIES: Record<TreeSpeciesId, SpeciesParams> = {
     },
     flare: { amp: 0.5, height: 0.9, lobes: 4 },
     bark: [0.32, 0.26, 0.2],
-    barkStyle: "beech",
+    barkStyle: "camphor",
   },
 
   /** 垂柳:穹顶冠,长垂小枝 + 窄长叶两列互生 */
@@ -257,7 +257,7 @@ export const TREE_SPECIES: Record<TreeSpeciesId, SpeciesParams> = {
     },
     flare: { amp: 0.4, height: 0.7, lobes: 3 },
     bark: [0.34, 0.28, 0.21],
-    barkStyle: "beech",
+    barkStyle: "willow",
   },
 
   /** 杉:锥形冠,轮生近水平枝 + 平面针叶梳 */
@@ -299,7 +299,7 @@ export const TREE_SPECIES: Record<TreeSpeciesId, SpeciesParams> = {
     },
     flare: { amp: 0.35, height: 0.8, lobes: 5 },
     bark: [0.28, 0.22, 0.16],
-    barkStyle: "spruce",
+    barkStyle: "pine",
   },
 
   /** 高山冷杉:窄锥冠,密轮生短枝,针叶半刷状,梢端上翘 */

@@ -1,7 +1,8 @@
 /**
  * 植被实例材质 kernel(近景网格)。
  *
- * bark:程序化树皮(板条/纵裂/法线/腔隙 AO,对齐 LAAS BarkSynth 观感)
+ * bark:烘焙树皮双贴图(LAAS barkTexturedMaterial)—— sqrt 解码 albedo、
+ *   切线法线、腔隙 AO(aoNode)、粗糙度通道
  * cards:sqrt 解码图集 + 色相抖动 + 背光透光 + 边缘淡出(LAAS foliageCardMaterial)
  */
 
@@ -20,6 +21,7 @@ import {
   float,
   instancedBufferAttribute,
   mix,
+  normalLocal,
   normalWorld,
   positionLocal,
   positionWorld,
@@ -31,10 +33,9 @@ import {
   vec2,
   vec3,
 } from "three/tsl";
-import { normalLocal } from "three/tsl";
 import type { NF, NV3, NV4 } from "../gpu/tsl-types";
 import type { EnvState } from "./env";
-import { BARK_STYLES, buildBarkMaterial, type BarkStyle } from "./barkMaterial";
+import type { BarkTextures } from "./barkSynth";
 import { leafFlutter, windSway } from "./wind";
 
 export type VegInstances = {
@@ -80,6 +81,7 @@ function foliageTranslucency(albedo: NV3, env: EnvState, k: number): NV3 {
   return albedo.mul(sunCol).mul(glow);
 }
 
+/** 实例变换 + 风:设 positionNode,返回 yaw 的 cos/sin 供法线旋转 */
 function applyWind(
   material: MeshPhysicalNodeMaterial,
   env: EnvState,
@@ -87,7 +89,7 @@ function applyWind(
   windAmp: number,
   flutterAmp: number,
   leafK: number,
-): void {
+): { c: NF; s: NF } {
   const a = instancedBufferAttribute(inst.instA) as unknown as NV4;
   const b = instancedBufferAttribute(inst.instB) as unknown as NV4;
   const yaw = b.x;
@@ -109,10 +111,16 @@ function applyWind(
       ? leafFlutter(env, anchor, b.w.mul(43).add(heightK.mul(7)), flutterAmp)
       : vec3(0, 0, 0);
   material.positionNode = rot.add(instPos).add(sway).add(flutter);
-  const n = normalLocal;
-  material.normalNode = transformNormalToView(
-    vec3(n.x.mul(c).sub(n.z.mul(s)), n.y, n.x.mul(s).add(n.z.mul(c))),
-  );
+  return { c, s };
+}
+
+/** 局部法线绕 y 按实例 yaw 旋转后送入光照 */
+function yawRotatedNormal(n: NV3, c: NF, s: NF): NV3 {
+  return vec3(
+    n.x.mul(c).sub(n.z.mul(s)),
+    n.y,
+    n.x.mul(s).add(n.z.mul(c)),
+  ) as unknown as NV3;
 }
 
 export function buildVegPool(
@@ -124,10 +132,9 @@ export function buildVegPool(
     flutterAmp: number;
     atlas?: Texture;
     leafK?: number;
-    /** 树皮风格 key(bark 池) */
-    barkStyle?: keyof typeof BARK_STYLES | BarkStyle;
+    /** 烘焙树皮双贴图(bark 池) */
+    barkTex?: BarkTextures;
     foliageHueVar?: number;
-    barkSeed?: number;
   },
 ): VegPool {
   const geometry = baseGeometry.clone();
@@ -136,28 +143,54 @@ export function buildVegPool(
   geometry.setAttribute("instHue", inst.instHue);
 
   const leafK = opts.leafK ?? 1;
+  const hue = (instancedBufferAttribute(inst.instHue) as unknown as NF)
+    .sub(0.5)
+    .mul(2); // 0..1 → −1..1(LAAS vdata.x 约定)
 
-  // ---- 树皮池 ----
-  if (opts.barkStyle && !opts.atlas) {
-    const style =
-      typeof opts.barkStyle === "string"
-        ? (BARK_STYLES[opts.barkStyle] as BarkStyle)
-        : opts.barkStyle;
-    const material = buildBarkMaterial(style, inst.instHue, opts.barkSeed ?? 0);
-    applyWind(material, env, inst, opts.windAmp, 0, 0);
-    return { geometry, material };
+  // ---- 树皮池(LAAS barkTexturedMaterial) ----
+  if (opts.barkTex) {
+    const mat = new MeshPhysicalNodeMaterial();
+    mat.specularIntensity = 0.45;
+    mat.metalness = 0;
+    // 封闭管 DoubleSide 近零开销,且 LOD/抖动下永不露出"空心"内壁
+    mat.side = DoubleSide;
+
+    const { c, s } = applyWind(mat, env, inst, opts.windAmp, 0, 0);
+
+    const a = texture(opts.barkTex.texA, uv()) as unknown as NV4;
+    const b = texture(opts.barkTex.texB, uv()) as unknown as NV4;
+    const albedo = a.rgb.mul(a.rgb); // 烘焙时 sqrt 编码
+    const vcol = attribute("color") as unknown as NV4;
+    // 干基压暗近似枝干 AO(LAAS 用逐顶点烘焙 AO)
+    const baseAo = vcol.w.mul(0.3).add(0.7);
+    mat.colorNode = hueShift(albedo as unknown as NV3, hue, 0.14).mul(baseAo);
+    mat.aoNode = a.w;
+    mat.roughnessNode = b.z;
+
+    // 切线法线:管面局部帧(T = 周向/u,B = 沿枝/v)展开贴图法线,再随实例 yaw 旋转
+    const nl = normalLocal;
+    const bx = b.x.mul(2).sub(1);
+    const by = b.y.mul(2).sub(1);
+    const t = vec3(nl.z.negate(), float(0.001), nl.x).normalize();
+    const bi = nl.cross(t).normalize();
+    const np = nl.add(t.mul(bx)).add(bi.mul(by)).normalize();
+    mat.normalNode = transformNormalToView(yawRotatedNormal(np as unknown as NV3, c, s));
+
+    return { geometry, material: mat };
   }
 
-  // ---- 叶簇卡片池(LAAS foliageCardMaterial) ----
+  // ---- 叶簇卡片 / 农作物池 ----
   const mat = new MeshPhysicalNodeMaterial();
   mat.specularIntensity = 0.18;
   mat.metalness = 0;
   mat.side = DoubleSide;
 
-  applyWind(mat, env, inst, opts.windAmp, opts.flutterAmp, leafK);
+  const { c, s } = applyWind(mat, env, inst, opts.windAmp, opts.flutterAmp, leafK);
+  mat.normalNode = transformNormalToView(
+    yawRotatedNormal(normalLocal as unknown as NV3, c, s),
+  );
 
   if (opts.atlas) {
-    const hue = instancedBufferAttribute(inst.instHue) as unknown as NF;
     const vcol = attribute("color") as unknown as NV4;
     const t = texture(opts.atlas, uv()) as unknown as NV4;
     // sqrt 解码(LAAS 烘焙编码)
@@ -170,7 +203,7 @@ export function buildVegPool(
     mat.colorNode = tinted;
 
     // 背光透光
-    mat.emissiveNode = foliageTranslucency(tinted, env, 0.06);
+    mat.emissiveNode = foliageTranslucency(tinted as unknown as NV3, env, 0.06);
 
     // 边缘淡出:卡片平面与视线平行时近距变暗薄片(LAAS DELTA #5)
     const viewDir = cameraPosition.sub(positionWorld).normalize();
