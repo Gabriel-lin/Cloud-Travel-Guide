@@ -36,6 +36,8 @@ export type BiomeMaskBuffers = {
   sand: Float32Array;
   wetland: Float32Array;
   scrub: Float32Array;
+  /** OSM 草地/牧场多边形(landuse=meadow|grass, natural=grassland) */
+  grass: Float32Array;
 };
 
 export async function runBiomeClassify(
@@ -56,6 +58,7 @@ export async function runBiomeClassify(
   const sandM = instancedArray(masks.sand, "float");
   const wetM = instancedArray(masks.wetland, "float");
   const scrubM = instancedArray(masks.scrub, "float");
+  const grassM = instancedArray(masks.grass, "float");
   const biomeId = instancedArray(N, "float");
   const snow = instancedArray(N, "float");
   const vegDensity = instancedArray(N, "float");
@@ -109,6 +112,7 @@ export async function runBiomeClassify(
     const fSand = clamp(sandM.element(i).add(edge.mul(0.5)), 0, 1);
     const fWet = clamp(wetM.element(i), 0, 1);
     const fScrub = clamp(scrubM.element(i), 0, 1);
+    const fGrass = clamp(grassM.element(i).add(edge.mul(0.6)), 0, 1);
 
     // 干旱沙漠(无遮罩数据时的气候推断):高温 + 极低湿度
     const arid = smoothstep(0.12, 0.03, moist).mul(smoothstep(14, 24, temp));
@@ -120,6 +124,11 @@ export async function runBiomeClassify(
 
     const id = float(BIOME.meadow).toVar();
     const veg = float(0.14).add(jitter.mul(0.06)).toVar(); // meadow 基础
+    // OSM 草地/牧场多边形:面积内草密度大幅抬升(id 保持 meadow),
+    // 面积权重 fGrass 连续过渡 —— 小块草皮弱增,整片牧场浓密
+    If(fGrass.greaterThan(0.25), () => {
+      veg.assign(clamp(float(0.45).add(fGrass.mul(0.5)), 0, 1));
+    });
     If(alpineK.greaterThan(0.5), () => {
       id.assign(BIOME.alpine);
       veg.assign(clamp(float(0.06).sub(snowK.mul(0.05)), 0, 1));

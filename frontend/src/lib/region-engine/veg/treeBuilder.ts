@@ -444,6 +444,17 @@ function tubeForBranch(
 
   const shade = 0.82 + rng() * 0.3;
 
+  // UV 以米为单位映射到树皮贴图(1 uv 单位 ≈ 1.6 m 干面):
+  // u 按基部周长取整数圈数(保证接缝连续),v 沿枝累计弧长
+  const cumLen: number[] = [0];
+  for (let i = 1; i < n; i++) {
+    cumLen.push(
+      (cumLen[i - 1] as number) +
+        (br.pts[i] as Vector3).distanceTo(br.pts[i - 1] as Vector3),
+    );
+  }
+  const uRep = Math.max(1, Math.round(2 * Math.PI * (br.radii[0] as number) * 0.75));
+
   for (let i = 0; i < n; i++) {
     const p = br.pts[i] as Vector3;
     const r = br.radii[i] as number;
@@ -462,10 +473,7 @@ function tubeForBranch(
     }
     const heightK = Math.min(Math.max(p.y / height, 0), 1);
     const ring: number[] = [];
-    // 树干 UV 按高度拉伸,使纵裂/板条在整株尺度上连续
-    const vAlong = i / (n - 1);
-    const vUv = br.level === 0 ? vAlong * Math.max(1, (br.pts[n - 1] as Vector3).y * 0.35) : vAlong;
-    const uRepeats = br.level === 0 ? 3 : 1;
+    const vUv = (cumLen[i] as number) * 0.6;
     for (let k = 0; k <= segsAround; k++) {
       const a = (k / segsAround) * Math.PI * 2;
       const ca = Math.cos(a);
@@ -485,7 +493,7 @@ function tubeForBranch(
         g.vertex(
           p.x + dx * rr, p.y + dy * rr, p.z + dz * rr,
           dx, dy, dz,
-          (k / segsAround) * uRepeats, vUv,
+          (k / segsAround) * uRep, vUv,
           Math.max(bark[0] * shade + j * 0.6, 0.02),
           Math.max(bark[1] * shade + j, 0.02),
           Math.max(bark[2] * shade + j * 0.4, 0.02),

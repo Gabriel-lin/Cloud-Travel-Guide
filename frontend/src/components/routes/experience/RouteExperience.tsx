@@ -31,6 +31,8 @@ const INITIAL_STATE: RouteToolbarState = {
  */
 export function RouteExperience({ config }: RouteExperienceProps) {
   const [state, setState] = useState<RouteToolbarState>(INITIAL_STATE);
+  // 当前站点：驱动三维场景所在地与俯视图高亮
+  const [activeStopIndex, setActiveStopIndex] = useState(0);
 
   const handleChange = useCallback((patch: Partial<RouteToolbarState>) => {
     setState((prev) => ({ ...prev, ...patch }));
@@ -39,7 +41,12 @@ export function RouteExperience({ config }: RouteExperienceProps) {
   return (
     <div className="relative h-full w-full overflow-hidden bg-surface-950">
       {/* 2 · 场景（铺满整页，位于最底层） */}
-      <RouteScene config={config} state={state} onStateChange={handleChange} />
+      <RouteScene
+        config={config}
+        state={state}
+        activeStopIndex={activeStopIndex}
+        onStateChange={handleChange}
+      />
 
       {/* 1 · 顶部工具栏 */}
       <RouteToolbar config={config} state={state} onChange={handleChange} />
@@ -49,7 +56,11 @@ export function RouteExperience({ config }: RouteExperienceProps) {
         <div className="flex min-h-0 w-full flex-1">
           <RouteInfoPanel config={config} />
         </div>
-        <RouteMiniMap config={config} />
+        <RouteMiniMap
+          config={config}
+          activeIndex={activeStopIndex}
+          onSelectStop={setActiveStopIndex}
+        />
       </div>
     </div>
   );

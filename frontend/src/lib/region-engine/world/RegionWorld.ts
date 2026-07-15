@@ -34,6 +34,8 @@ import { createSkyDome, skyHorizonRgb } from "../render/skyAtmosphere";
 import { scatterWorld } from "../veg/scatter";
 import type { BootProgress, RegionParams, WorldFields } from "../types";
 import { createBuildings } from "./Buildings";
+import { createGrassRing } from "./GrassRing";
+import { createOuterApron } from "./OuterApron";
 import { createAmbientParticles, createFireflies } from "./Particles";
 import { TerrainTiles } from "./TerrainTiles";
 import { Vegetation } from "./Vegetation";
@@ -118,6 +120,7 @@ export class RegionWorld {
     });
     world.group.add(world.terrain.mesh);
     world.group.add(createWaterSurface(tex, env));
+    world.group.add(createGrassRing(tex, env));
 
     onProgress({ status: "building", value: 0.86, detail: "vegetation" });
     world.vegetation = new Vegetation(renderer, env, fields, scatter);
@@ -150,6 +153,15 @@ export class RegionWorld {
     world.group.add(world.sun.target);
     world.hemi = new HemisphereLight(0xbfd4e8, 0x54503c, 0.55);
     world.group.add(world.hemi);
+
+    // 外围裙带(真实卫星影像 + 粗 DEM 衔接周边地貌):后台加载,不阻塞 boot
+    void createOuterApron(proj, fields)
+      .then((apron) => {
+        if (apron) world.group.add(apron);
+      })
+      .catch((err: unknown) => {
+        console.warn("[region-engine] outer apron unavailable", err);
+      });
 
     onProgress({ status: "ready", value: 1 });
     return world;

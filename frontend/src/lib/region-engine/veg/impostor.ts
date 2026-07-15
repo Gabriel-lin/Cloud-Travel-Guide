@@ -27,6 +27,7 @@ import {
 } from "three/webgpu";
 import { attribute, texture, uv } from "three/tsl";
 import type { NF, NV4 } from "../gpu/tsl-types";
+import type { BarkTextures } from "../render/barkSynth";
 
 export type ImpostorBake = {
   texture: Texture;
@@ -40,18 +41,21 @@ export async function bakeImpostor(
   bark: BufferGeometry,
   cards: BufferGeometry,
   atlas: Texture,
+  barkTex: BarkTextures,
   texSize = 256,
 ): Promise<ImpostorBake> {
   const scene = new Scene();
 
   const barkMat = new MeshStandardNodeMaterial();
-  barkMat.colorNode = (attribute("color") as unknown as NV4).xyz;
+  const bA = texture(barkTex.texA, uv());
+  const barkAo = (attribute("color") as unknown as NV4).w.mul(0.3).add(0.7);
+  barkMat.colorNode = bA.xyz.mul(bA.xyz).mul(barkAo); // sqrt 解码
   barkMat.roughness = 0.9;
 
   const cardMat = new MeshBasicNodeMaterial();
   const tex = texture(atlas, uv());
   const tint = (attribute("color") as unknown as NV4).xyz;
-  cardMat.colorNode = tex.xyz.mul(tint);
+  cardMat.colorNode = tex.xyz.mul(tex.xyz).mul(tint); // sqrt 解码
   cardMat.opacityNode = tex.w as NF;
   cardMat.alphaTest = 0.42;
   cardMat.side = DoubleSide;

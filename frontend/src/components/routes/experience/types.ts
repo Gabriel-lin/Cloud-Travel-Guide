@@ -35,6 +35,8 @@ export type RouteExperienceConfig = {
   accent: string;
   /** 占位背景图（场景模块完成前使用）。 */
   backgroundImage: string;
+  /** 右下角俯视图的路线主题背景图。 */
+  miniMapImage: string;
   /** 路线站点列表。 */
   stops: RouteStop[];
 };

@@ -12,6 +12,7 @@ export const ROUTE_EXPERIENCES: readonly RouteExperienceConfig[] = [
     i18nKey: "routes.silkRoad",
     accent: "#d9a441",
     backgroundImage: "/images/routes-scenery.jpg",
+    miniMapImage: "/images/minimap/silk-road.png",
     stops: [
       { id: "xian", labelKey: "routes.silkRoad.stops.xian", coord: { lat: 34.34, lon: 108.94 } },
       { id: "lanzhou", labelKey: "routes.silkRoad.stops.lanzhou", coord: { lat: 36.06, lon: 103.83 } },
@@ -25,6 +26,7 @@ export const ROUTE_EXPERIENCES: readonly RouteExperienceConfig[] = [
     i18nKey: "routes.sichuanTibet",
     accent: "#4fb6a6",
     backgroundImage: "/images/routes-scenery.jpg",
+    miniMapImage: "/images/minimap/sichuan-tibet.png",
     stops: [
       { id: "chengdu", labelKey: "routes.sichuanTibet.stops.chengdu", coord: { lat: 30.57, lon: 104.07 } },
       { id: "kangding", labelKey: "routes.sichuanTibet.stops.kangding", coord: { lat: 30.05, lon: 101.96 } },
@@ -38,6 +40,7 @@ export const ROUTE_EXPERIENCES: readonly RouteExperienceConfig[] = [
     i18nKey: "routes.mediterranean",
     accent: "#5b9bd5",
     backgroundImage: "/images/routes-scenery.jpg",
+    miniMapImage: "/images/minimap/mediterranean.png",
     stops: [
       { id: "barcelona", labelKey: "routes.mediterranean.stops.barcelona", coord: { lat: 41.39, lon: 2.17 } },
       { id: "marseille", labelKey: "routes.mediterranean.stops.marseille", coord: { lat: 43.3, lon: 5.37 } },
