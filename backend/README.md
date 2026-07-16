@@ -330,6 +330,24 @@ Docker 开发容器启动时会自动执行 `alembic upgrade head`。
 | GET | `/api/v1/auth/oauth/{github\|google}` | OAuth 授权跳转 |
 | GET | `/api/v1/auth/oauth/{provider}/callback` | OAuth 回调 → 重定向前端 |
 | POST | `/api/v1/auth/oauth/exchange` | 授权码换 token |
+| GET | `/api/v1/plan/agents` | 智能体 + 模型别名目录 |
+| POST | `/api/v1/plan/chat` | 规划对话（SSE 流式） |
+| GET | `/api/v1/plans` | 行程列表（需登录） |
+| POST | `/api/v1/plans` | 创建行程 |
+| GET | `/api/v1/plans/{id}` | 行程详情 |
+| PUT | `/api/v1/plans/{id}` | 更新行程 |
+| DELETE | `/api/v1/plans/{id}` | 删除行程 |
+
+### LLM 多模型（LiteLLM）
+
+生产做法：智能体只引用**逻辑别名**（`gpt-5.5` / `opus-4.8` / `deepseek-v3`），由 `app/llm` 映射到 LiteLLM 路由。
+
+配置方式（二选一或混用），见 `.env.example`：
+
+1. **官方密钥**：`OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `DEEPSEEK_API_KEY`
+2. **三方 OpenAI 兼容网关**：`LLM_OPENAI_COMPAT_BASE_URL` + `LLM_OPENAI_COMPAT_API_KEY`
+
+未配置密钥且 `LLM_ALLOW_MOCK=true` 时，对话返回本地 mock 流（便于先联调 UI）。
 
 ## Git 钩子
 

@@ -32,6 +32,10 @@
     "*.{js,jsx,ts,tsx,mjs,cjs}": "eslint --fix --max-warnings=0 --no-warn-ignored"
   },
   "dependencies": {
+    "@assistant-ui/core": "^0.2.20",
+    "@assistant-ui/react": "^0.14.26",
+    "@assistant-ui/react-markdown": "^0.14.5",
+    "@assistant-ui/styles": "^0.3.7",
     "@base-ui/react": "^1.5.0",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.6.1",
