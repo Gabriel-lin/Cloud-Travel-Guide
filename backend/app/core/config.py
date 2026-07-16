@@ -76,6 +76,31 @@ class Settings(BaseSettings):
         alias="OAUTH_BACKEND_CALLBACK_BASE",
     )
 
+    # -------------------------------------------------------------------------
+    # LLM / multi-model (LiteLLM). Prefer dedicated keys; or one OpenAI-compat gateway.
+    # -------------------------------------------------------------------------
+    openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
+    openai_api_base: str | None = Field(default=None, alias="OPENAI_API_BASE")
+    anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")
+    deepseek_api_key: str | None = Field(default=None, alias="DEEPSEEK_API_KEY")
+    deepseek_api_base: str | None = Field(
+        default="https://api.deepseek.com",
+        alias="DEEPSEEK_API_BASE",
+    )
+    # Third-party OpenAI-compatible gateway (one base_url + key → many models)
+    llm_openai_compat_base_url: str | None = Field(
+        default=None,
+        alias="LLM_OPENAI_COMPAT_BASE_URL",
+    )
+    llm_openai_compat_api_key: str | None = Field(
+        default=None,
+        alias="LLM_OPENAI_COMPAT_API_KEY",
+    )
+    llm_default_model: str = Field(default="gpt-5.5", alias="LLM_DEFAULT_MODEL")
+    # JSON: {"gpt-5.5":"openai/gpt-5.5","opus-4.8":"anthropic/claude-opus-4-8",...}
+    llm_model_aliases: str | None = Field(default=None, alias="LLM_MODEL_ALIASES")
+    llm_allow_mock: bool = Field(default=True, alias="LLM_ALLOW_MOCK")
+
     @field_validator("environment", mode="before")
     @classmethod
     def normalize_environment(cls, value: str) -> str:

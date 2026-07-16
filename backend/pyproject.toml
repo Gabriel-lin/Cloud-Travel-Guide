@@ -35,6 +35,9 @@ dependencies = [
     "authlib>=1.7.2",
     "bcrypt>=5.0.0",
     "cryptography>=44.0.0",
+    "openai>=2.45.0",
+    # Pin below 1.90: newer releases may require Rust/MSVC to build on Windows
+    "litellm>=1.65.0,<1.90",
 ]
 
 [dependency-groups]
@@ -81,6 +84,7 @@ select = [
 ]
 ignore = [
     "E501",   # line length — formatter handles wrapping
+    "RUF001", # ambiguous unicode punctuation — intentional in Chinese copy
 ]
 
 [tool.ruff.lint.per-file-ignores]

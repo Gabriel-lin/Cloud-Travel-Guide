@@ -11,6 +11,8 @@ from backend.app.models.user import User
 from backend.app.services.auth_service import AuthService
 from backend.app.services.oauth_service import OAuthService
 from backend.app.services.password_cipher_service import PasswordCipherService
+from backend.app.services.plan_chat_service import PlanChatService
+from backend.app.services.plan_service import PlanService
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 
@@ -27,6 +29,14 @@ def get_password_cipher_service(
     db: Annotated[Session, Depends(get_db)],
 ) -> PasswordCipherService:
     return PasswordCipherService(db)
+
+
+def get_plan_chat_service() -> PlanChatService:
+    return PlanChatService()
+
+
+def get_plan_service(db: Annotated[Session, Depends(get_db)]) -> PlanService:
+    return PlanService(db)
 
 
 def get_current_token(
