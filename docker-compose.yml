@@ -1,0 +1,172 @@
+# Shared stack definition (production-oriented defaults).
+# Always merge with an overlay:
+#   Dev:  docker compose -f docker-compose.yml -f docker-compose.dev.yml ...
+#   Prod: docker compose -f docker-compose.yml -f docker-compose.prod.yml ...
+# Prefer: python scripts/stack.py up|down|logs
+
+name: cloud-travel-guide
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+# Fixed volume name so SANDBOX_WORKSPACE_VOLUME is stable for the Docker daemon.
+x-workspace-mount: &workspace-mount "agent_workspace:/app/backend/.agent_workspace"
+
+networks:
+  default:
+  # docker-proxy only — backend/postgres stay off this network.
+  sandbox:
+    internal: true
+
+volumes:
+  postgres_data:
+  agent_workspace:
+    name: ctg_agent_workspace
+
+services:
+  postgres:
+    image: postgres:15-alpine@sha256:cd17e2ac98240fce1541ad2a803b34009b4eea5aec8a832363cdc7eca62e722e
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_DB: ${POSTGRES_DB:-cloud_travel_guide}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-user} -d ${POSTGRES_DB:-cloud_travel_guide}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    stop_grace_period: 10s
+    logging: *default-logging
+    networks: [default]
+
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy:0.3.0@sha256:9e4b9e7517a6b660f2cc903a19b257b1852d5b3344794e3ea334ff00ae677ac2
+    environment:
+      # Allow-list only (defaults deny everything else).
+      CONTAINERS: "1"
+      IMAGES: "1"
+      POST: "1"
+      PING: "1"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    stop_grace_period: 5s
+    logging: *default-logging
+    networks: [sandbox]
+
+  migrate:
+    profiles: [migrate]
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    working_dir: /app/backend
+    command: ["migrate"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://user:password@postgres:5432/cloud_travel_guide}
+      PYTHONPATH: /app
+      PYTHONUNBUFFERED: "1"
+      APP_UID: "10001"
+      APP_GID: "10001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    logging: *default-logging
+    networks: [default]
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    working_dir: /app/backend
+    # Root only for entrypoint volume chown; drops to APP_UID before exec.
+    user: "0:0"
+    init: true
+    stop_grace_period: 10s
+    stop_signal: SIGTERM
+    environment: &api-env
+      DATABASE_URL: ${DATABASE_URL:-postgresql://user:password@postgres:5432/cloud_travel_guide}
+      AGENT_WORKSPACE_DIR: /app/backend/.agent_workspace
+      SANDBOX_WORKSPACE_VOLUME: ctg_agent_workspace
+      SANDBOX_RUNTIME: ${SANDBOX_RUNTIME:-runc}
+      SANDBOX_PYTHON_IMAGE: ${SANDBOX_PYTHON_IMAGE:-cloud-travel-guide-sandbox-python:3.12}
+      SANDBOX_PLAYWRIGHT_IMAGE: ${SANDBOX_PLAYWRIGHT_IMAGE:-cloud-travel-guide-sandbox-playwright:3.12}
+      PYTHONPATH: /app
+      PYTHONUNBUFFERED: "1"
+      APP_UID: "10001"
+      APP_GID: "10001"
+    volumes:
+      - *workspace-mount
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=2)",
+        ]
+      interval: 30s
+      timeout: 3s
+      retries: 5
+      start_period: 40s
+    logging: *default-logging
+    networks: [default]
+
+  # Build once; worker + ephemeral job containers use this image (deps pre-installed).
+  sandbox-python:
+    build:
+      context: ./backend
+      dockerfile: sandbox/Dockerfile.python
+    image: cloud-travel-guide-sandbox-python:3.12
+    entrypoint: ["true"]
+    restart: "no"
+    logging: *default-logging
+
+  sandbox-playwright:
+    build:
+      context: ./backend
+      dockerfile: sandbox/Dockerfile.playwright
+    image: cloud-travel-guide-sandbox-playwright:3.12
+    entrypoint: ["true"]
+    restart: "no"
+    logging: *default-logging
+
+  sandbox-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    working_dir: /app/backend
+    user: "0:0"
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 15s
+    stop_signal: SIGTERM
+    command: ["worker"]
+    environment:
+      <<: *api-env
+      DOCKER_HOST: tcp://docker-proxy:2375
+    volumes:
+      - *workspace-mount
+    depends_on:
+      postgres:
+        condition: service_healthy
+      docker-proxy:
+        condition: service_started
+      sandbox-python:
+        condition: service_completed_successfully
+      sandbox-playwright:
+        condition: service_completed_successfully
+    logging: *default-logging
+    networks: [default, sandbox]

@@ -38,6 +38,16 @@ dependencies = [
     "openai>=2.45.0",
     # Pin below 1.90: newer releases may require Rust/MSVC to build on Windows
     "litellm>=1.65.0,<1.90",
+    "langchain>=0.3.0,<1",
+    "langchain-core>=0.3.0,<1",
+    "langgraph>=0.2.0,<1",
+    "duckduckgo-search>=7.0.0,<9",
+    "langchain-community>=0.3.0,<1",
+    "wikipedia>=1.4.0,<2",
+    "tzdata>=2026.3",
+    "docker>=7.0.0,<8",
+    "markdown>=3.7,<4",
+    "weasyprint>=63.0,<64",
 ]
 
 [dependency-groups]
@@ -122,7 +132,7 @@ show_error_codes = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["passlib.*", "psycopg2.*"]
+module = ["passlib.*", "psycopg2.*", "weasyprint.*", "markdown.*"]
 ignore_missing_imports = true
 
 [tool.pydantic-mypy]

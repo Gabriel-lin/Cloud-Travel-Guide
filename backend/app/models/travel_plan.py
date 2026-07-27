@@ -39,6 +39,10 @@ class TravelPlan(Base):
         default=list,
         server_default="[]",
     )
+    itinerary: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=True,
+    )
     destination_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

@@ -180,3 +180,75 @@ body {
     @apply font-sans;
   }
 }
+
+@layer utilities {
+  .tool-stream-shimmer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      color-mix(in srgb, var(--color-brand-400) 6%, transparent) 38%,
+      color-mix(in srgb, var(--color-brand-400) 16%, transparent) 50%,
+      color-mix(in srgb, var(--color-brand-400) 6%, transparent) 62%,
+      transparent 100%
+    );
+    transform: translateX(-100%);
+    animation: tool-stream-shimmer 1.75s ease-in-out infinite;
+    pointer-events: none;
+  }
+
+  @keyframes tool-stream-shimmer {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(100%);
+    }
+  }
+
+  .tool-row-enter {
+    animation: tool-row-enter 0.28s ease-out both;
+  }
+
+  @keyframes tool-row-enter {
+    from {
+      opacity: 0;
+      transform: translateX(-4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  .streaming-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 9999px;
+    background-color: var(--color-ink-400);
+    animation: streaming-dot-bounce 1.1s ease-in-out infinite;
+  }
+
+  .streaming-dot-delay-1 {
+    animation-delay: 0.15s;
+  }
+
+  .streaming-dot-delay-2 {
+    animation-delay: 0.3s;
+  }
+
+  @keyframes streaming-dot-bounce {
+    0%,
+    70%,
+    100% {
+      transform: translateY(0);
+      opacity: 0.35;
+    }
+    35% {
+      transform: translateY(-5px);
+      opacity: 1;
+    }
+  }
+}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -16,9 +17,14 @@ class PlanChatRequest(BaseModel):
     agent_id: str = Field(default="travel-planner", alias="agentId")
     model: str | None = Field(
         default=None,
-        description="Optional model alias override (gpt-5.5 / opus-4.8 / deepseek-v3)",
+        description="Optional model alias override (gpt-5.5 / opus-4.8 / deepseek-v4-pro)",
     )
     thread_id: str | None = Field(default=None, alias="threadId")
+    plan_id: UUID | None = Field(
+        default=None,
+        alias="planId",
+        description="Optional travel plan id for plan entity tools",
+    )
 
     model_config = {"populate_by_name": True}
 
@@ -48,6 +54,7 @@ class AgentsResponse(BaseModel):
     agents: list[AgentPublic]
     models: list[ModelPublic]
     default_agent_id: str = Field(alias="defaultAgentId")
+    default_model_id: str | None = Field(default=None, alias="defaultModelId")
 
     model_config = {"populate_by_name": True}
 
@@ -75,6 +82,7 @@ class PlanItemResponse(BaseModel):
 class PlanDetailResponse(PlanItemResponse):
     description: str | None = None
     destinations: list[PlanDestination] = Field(default_factory=list)
+    itinerary: dict[str, Any] | None = None
 
 
 class CreatePlanRequest(BaseModel):
@@ -102,5 +110,14 @@ class PlanListResponse(BaseModel):
     total: int
     page: int
     page_size: int = Field(alias="pageSize")
+
+    model_config = {"populate_by_name": True}
+
+
+class WorkspaceFileResponse(BaseModel):
+    path: str
+    filename: str
+    mime_type: str = Field(alias="mimeType")
+    data: str = Field(description="Base64-encoded file bytes")
 
     model_config = {"populate_by_name": True}

@@ -14,7 +14,13 @@ from backend.app.core.logging import configure_logging
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     configure_logging(debug=settings.debug)
-    yield
+    try:
+        yield
+    finally:
+        # Release pooled DB connections so the process can exit promptly on Ctrl+C.
+        from backend.app.core.database import engine
+
+        engine.dispose()
 
 
 def create_app() -> FastAPI:

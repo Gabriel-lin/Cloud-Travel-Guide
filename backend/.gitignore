@@ -50,6 +50,9 @@ pip-wheel-metadata/
 .env.*
 !.env.example
 
+# --- Agent sandboxed workspace ---
+.agent_workspace/
+
 # --- Logs ---
 *.log
 uvicorn*.log
