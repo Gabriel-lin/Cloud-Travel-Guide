@@ -20,6 +20,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        populate_by_name=True,
     )
 
     app_name: str = "Cloud Travel Guide API"
@@ -100,6 +101,106 @@ class Settings(BaseSettings):
     # JSON: {"gpt-5.5":"openai/gpt-5.5","opus-4.8":"anthropic/claude-opus-4-8",...}
     llm_model_aliases: str | None = Field(default=None, alias="LLM_MODEL_ALIASES")
     llm_allow_mock: bool = Field(default=True, alias="LLM_ALLOW_MOCK")
+
+    # -------------------------------------------------------------------------
+    # Agents — workspace + pluggable web search
+    # -------------------------------------------------------------------------
+    agent_workspace_dir: str = Field(
+        default=".agent_workspace",
+        alias="AGENT_WORKSPACE_DIR",
+    )
+    tavily_api_key: str | None = Field(default=None, alias="TAVILY_API_KEY")
+    agent_search_provider: Literal["auto", "duckduckgo", "tavily"] = Field(
+        default="auto",
+        alias="AGENT_SEARCH_PROVIDER",
+    )
+
+    # -------------------------------------------------------------------------
+    # Sandbox jobs (Docker / gVisor worker)
+    # -------------------------------------------------------------------------
+    sandbox_runtime: Literal["runc", "runsc"] = Field(
+        default="runc",
+        alias="SANDBOX_RUNTIME",
+        description="Container runtime: runc (dev/Windows) or runsc/gVisor (Linux prod)",
+    )
+    sandbox_python_image: str = Field(
+        default="cloud-travel-guide-sandbox-python:3.12",
+        alias="SANDBOX_PYTHON_IMAGE",
+    )
+    sandbox_bash_image: str = Field(
+        default="cloud-travel-guide-sandbox-python:3.12",
+        alias="SANDBOX_BASH_IMAGE",
+        description="Bash jobs use the same pre-built agent image (includes bash).",
+    )
+    sandbox_playwright_image: str = Field(
+        default="cloud-travel-guide-sandbox-playwright:3.12",
+        alias="SANDBOX_PLAYWRIGHT_IMAGE",
+        description="Optional template with Chromium for HTML→PDF via Playwright (profile=playwright).",
+    )
+    sandbox_user: str = Field(default="65534:65534", alias="SANDBOX_USER")
+    sandbox_memory_limit: str = Field(default="512m", alias="SANDBOX_MEMORY_LIMIT")
+    sandbox_playwright_memory_limit: str = Field(
+        default="1g",
+        alias="SANDBOX_PLAYWRIGHT_MEMORY_LIMIT",
+    )
+    sandbox_playwright_shm_size: str = Field(
+        default="256m",
+        alias="SANDBOX_PLAYWRIGHT_SHM_SIZE",
+        description="Shared memory for Chromium in playwright-profile jobs.",
+    )
+    sandbox_cpu_limit: float = Field(default=1.0, alias="SANDBOX_CPU_LIMIT")
+    sandbox_pids_limit: int = Field(default=128, alias="SANDBOX_PIDS_LIMIT")
+    sandbox_allow_network: bool = Field(default=False, alias="SANDBOX_ALLOW_NETWORK")
+    sandbox_job_timeout_sec: int = Field(default=600, alias="SANDBOX_JOB_TIMEOUT_SEC")
+    sandbox_tool_wait_sec: int = Field(
+        default=600,
+        alias="SANDBOX_TOOL_WAIT_SEC",
+        description="Max seconds run_sandbox_job waits in-chat before returning jobId",
+    )
+    sandbox_poll_interval_sec: float = Field(default=1.5, alias="SANDBOX_POLL_INTERVAL_SEC")
+    sandbox_worker_poll_sec: float = Field(default=2.0, alias="SANDBOX_WORKER_POLL_SEC")
+    sandbox_max_concurrent_jobs_per_user: int = Field(
+        default=2,
+        alias="SANDBOX_MAX_CONCURRENT_JOBS_PER_USER",
+    )
+    sandbox_max_script_bytes: int = Field(default=64_000, alias="SANDBOX_MAX_SCRIPT_BYTES")
+    sandbox_log_preview_bytes: int = Field(default=8_000, alias="SANDBOX_LOG_PREVIEW_BYTES")
+    sandbox_job_lease_sec: int = Field(
+        default=60,
+        alias="SANDBOX_JOB_LEASE_SEC",
+        description="How long a worker holds a running job before it can be reclaimed",
+    )
+    sandbox_job_heartbeat_sec: float = Field(
+        default=15.0,
+        alias="SANDBOX_JOB_HEARTBEAT_SEC",
+        description="How often the worker renews the job lease while a container runs",
+    )
+    sandbox_workspace_volume: str | None = Field(
+        default=None,
+        alias="SANDBOX_WORKSPACE_VOLUME",
+        description=(
+            "Docker volume name shared with the worker (compose: ctg_agent_workspace). "
+            "When set, sandbox containers mount this volume instead of a host bind path."
+        ),
+    )
+
+    # -------------------------------------------------------------------------
+    # Document export (Markdown → PDF)
+    # -------------------------------------------------------------------------
+    document_mermaid_render: bool = Field(
+        default=True,
+        alias="DOCUMENT_MERMAID_RENDER",
+        description="Pre-render ```mermaid``` blocks to PNG when exporting PDF via WeasyPrint.",
+    )
+    mermaid_ink_base_url: str = Field(
+        default="https://mermaid.ink/img",
+        alias="MERMAID_INK_BASE_URL",
+        description="Base URL for mermaid.ink raster rendering (WeasyPrint path; use /img not /svg).",
+    )
+    document_mermaid_timeout_sec: float = Field(
+        default=20.0,
+        alias="DOCUMENT_MERMAID_TIMEOUT_SEC",
+    )
 
     @field_validator("environment", mode="before")
     @classmethod

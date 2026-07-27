@@ -1,23 +1,40 @@
-# backend/Dockerfile.dev
+# backend/Dockerfile.dev — local image (bind-mount source; deps in /usr/local)
 FROM python:3.12-slim
 
-# 安装 PostgreSQL 开发库
-RUN apt-get update && apt-get install -y libpq-dev gcc
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libpq-dev gcc \
+        libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0 \
+        libjpeg62-turbo libopenjp2-7 libffi8 \
+        fontconfig fonts-noto-cjk fonts-noto-cjk-extra \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /tmp/fontconfig && chmod 1777 /tmp/fontconfig \
+    && groupadd --system --gid 10001 app \
+    && useradd --system --uid 10001 --gid app --home /app --shell /usr/sbin/nologin appuser
 
-# 设置工作目录
+COPY --from=ghcr.io/astral-sh/uv:0.9.18 /uv /uvx /bin/
+
 WORKDIR /app/backend
 
-# 安装 uv 与全部依赖（含 dev，便于容器内热重载调试）
-RUN pip install --no-cache-dir uv
-COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-install-project --system
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/usr/local \
+    PYTHONPATH=/app \
+    PYTHONUNBUFFERED=1 \
+    UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN=5 \
+    APP_UID=10001 \
+    APP_GID=10001 \
+    FONTCONFIG_CACHEDIR=/tmp/fontconfig
 
-# 复制代码
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-install-project
+
 COPY . .
 
-# 设置 PYTHONPATH
-ENV PYTHONPATH=/app
+RUN mkdir -p /app/backend/.agent_workspace \
+    && chown -R appuser:app /app
 
-# 启动 FastAPI 服务
-CMD ["sh", "-c", "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"]
-        
+USER appuser
+ENTRYPOINT ["python", "scripts/docker_entrypoint.py"]
+# No uvicorn --reload: Compose Watch syncs files; signals stay reliable on Win/Mac/Linux.
+CMD ["api"]

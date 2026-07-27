@@ -1,101 +1,126 @@
 # Cloud Travel Guide — Frontend
 
-生产级桌面前端：**Next.js + React** 渲染层，**Electron** 壳层，**Vite** 构建主进程/预加载脚本，**Tailwind CSS v4** 样式，**electron-builder** 打包，**Vitest**（Vite）单元测试。
+**Next.js** 应用 + **Electron** 桌面壳：规划对话、认证、路线探索与 3D/地图场景。
+
+产品与系统架构见 **[docs/ROADMAP.md](../docs/ROADMAP.md)**；API 见 **[backend/README.md](../backend/README.md)**。
+
+---
 
 ## 架构
 
-| 层级 | 技术 | 说明 |
-|------|------|------|
-| 渲染进程 | Next.js App Router | 开发时连 `http://127.0.0.1:3000` |
-| 渲染页面 | Next.js 静态导出 | 输出到 `out/` |
-| 主进程 / Preload | Electron + Vite（`build:electron`） | 输出到 `build/electron/` |
-| 安装包 | electron-builder | 输出到 `dist/` |
+```text
+┌─────────────────────────────────────────┐
+│ Electron 主进程 (electron/ + Vite build) │
+│   窗口 · 协议 · OAuth 深链 · 主题        │
+└──────────────────┬──────────────────────┘
+                   │ preload
+┌──────────────────▼──────────────────────┐
+│ Next.js App Router (src/app/)            │
+│   (auth) 登录注册 · (main) 首页/规划/路线 │
+│ components/plan  ← SSE 对话与工具 UI      │
+│ service/       ← REST/SSE 客户端         │
+│ lib/region-engine · terrain · Cesium    │
+└──────────────────┬──────────────────────┘
+                   │ NEXT_PUBLIC_API_BASE_URL
+                   ▼
+              Backend FastAPI
+```
+
+| 产物 | 命令输出 | 用途 |
+|------|----------|------|
+| `build/electron/` | `build:electron` | 主进程 / preload |
+| `out/` | `build:frontend` | Next 静态导出（壳内加载） |
+| `dist/` | `dist` | electron-builder 安装包 |
+
+---
 
 ## 环境要求
 
-- Node.js **22.x**（见 `.nvmrc` / `.node-version`）
+- **Node.js 22.x**（`.nvmrc` / `.node-version`）
 - npm 10+
-
-## 安装
-
-```bash
-cd frontend
-npm install
-```
-
-`npm install` 会通过 `prepare` 脚本自动安装 [Husky](https://typicode.github.io/husky/) Git 钩子（仓库根目录 `core.hooksPath` 指向 `frontend/.husky`）。克隆仓库后只需执行上述命令即可启用提交检查。
-
-### Git 提交规范
-
-提交信息须符合以下任一格式：
-
-```
-[feat] add map layer toggle
-[feat][ui] add map layer toggle
-[feat](ui) add map layer toggle
-[fix][electron] load scene on cold start
-```
-
-允许的 `type`：`feat`、`fix`、`chore`、`misc`、`docs`、`refactor`、`test`、`ci`、`build`、`perf`、`style`。
-
-可选 `scope`（填写时须在枚举内）：`ui`、`api`、`wasm`、`electron`、`build`、`ci`、`deps`、`config`、`docker`、`algo`、`db`、`test`。
-
-| 钩子 | 检查内容 |
-|------|----------|
-| `pre-commit` | 暂存 `frontend/` 时：ESLint（`lint-staged`）+ `typecheck`；暂存 `backend/` 时：Ruff、mypy、pytest（见 `backend/.pre-commit-config.yaml`） |
-| `commit-msg` | [commitlint](https://commitlint.js.org/) 校验提交说明（全仓库） |
-
-跳过钩子（仅紧急情况）：`git commit --no-verify`。
-
-若 Electron 二进制下载失败（国内网络），在 `frontend/.npmrc` 中取消注释 `electron_mirror`，或设置环境变量：
+- 本地开发需可访问后端（默认 http://127.0.0.1:8000）
 
 ```bash
-export ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/
+cd frontend && npm install
 ```
+
+可选 `frontend/.env.local`：
+
+```env
+NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
+```
+
+Electron 二进制下载失败时：配置 `frontend/.npmrc` 中的 `electron_mirror` 或 `ELECTRON_MIRROR`（国内镜像）。
+
+---
 
 ## 开发
 
 | 命令 | 说明 |
 |------|------|
-| `npm run dev` | Electron + Next 联调（Next、主进程 watch、Electron） |
-| `npm run dev:next` | 仅 Next |
+| `npm run dev` | Electron + Next 联调（常用） |
+| `npm run dev:next` | 仅 Next（浏览器） |
 | `npm run dev:electron` | 仅主进程 watch |
 
-可选：打开 DevTools — `ELECTRON_DEVTOOLS=1 npm run dev`
+`ELECTRON_DEVTOOLS=1 npm run dev` 打开 DevTools。
 
-## 构建
+后端与数据库：仓库根 `python scripts/stack.py up` 或 [backend/README.md](../backend/README.md)。
+
+---
+
+## 构建与发布
 
 | 命令 | 说明 |
 |------|------|
-| `npm run build` | 后端 Docker 镜像 + 前端 Electron 安装包 |
-| `npm run build:backend` | `docker compose` 构建 FastAPI 镜像 |
-| `npm run build:electron` | 主进程 → `build/electron/` |
-| `npm run build:frontend` | `build:electron` + Next → `out/` + `dist` |
-| `npm run dist` | electron-builder 打包安装包 → `dist/` |
-| `npm run preview` | 本地预览生产壳层（不生成安装包） |
+| `npm run build:electron` | Vite 打包主进程 → `build/electron/` |
+| `npm run build:frontend` | electron + Next 静态 → `out/` |
+| `npm run dist` | 安装包 → `dist/` |
+| `npm run build` | 含后端 Docker 镜像 + 前端安装包（全量） |
+| `npm run preview` | 预览生产壳（不产出安装包） |
 
-可执行安装包输出目录：`dist/`。
+桌面 OAuth 与生产域配置见 [docs/production-deployment-and-multi-client-oauth.md](../docs/production-deployment-and-multi-client-oauth.md)。
+
+---
+
+## 目录结构
+
+```text
+frontend/
+├── electron/              # 主进程、preload、auth/theme
+├── src/app/               # 路由：(auth)、(main)/plan|routes|…
+├── src/components/        # UI；plan/ 为对话与 artifact 预览
+├── src/service/           # API 客户端与类型
+├── src/i18n/              # 中英文文案
+├── src/lib/               # region-engine、terrain、auth 密码信封等
+├── vite.electron.config.ts
+├── next.config.ts         # ELECTRON_BUILD 时 static export
+└── electron-builder.yml
+```
+
+**规划对话 UI**：`PlanRuntimeProvider`、消息分片（工具调用、文件预览、PDF 等）在 `src/components/plan/`。
+
+---
 
 ## 质量
 
 ```bash
 npm run lint
 npm run typecheck
-npm test
+npm test          # Vitest
 ```
 
-## 目录结构
+### Git 钩子（仓库根）
 
-```
-frontend/
-├── electron/           # 主进程、preload、路径工具
-├── build/electron/     # Vite 主进程产物（gitignore）
-├── out/                # Next 静态导出（gitignore）
-├── dist/               # electron-builder 安装包（gitignore）
-├── src/app/            # Next.js 页面与布局
-├── src/lib/            # 渲染进程工具（如 electron API 封装）
-├── vite.config.ts      # Vitest + 路径别名
-├── vite.electron.config.ts  # Vite 打包 Electron
-├── next.config.ts      # ELECTRON_BUILD 时静态导出
-└── electron-builder.yml
-```
+`npm install` 启用 Husky。提交格式：`[feat]`、`[fix][ui]`、`[feat](electron)` 等；`commit-msg` 全仓库校验。
+
+| 钩子 | 范围 |
+|------|------|
+| pre-commit | `frontend/` → ESLint + typecheck；`backend/` → Ruff/mypy/pytest |
+| commit-msg | commitlint |
+
+---
+
+## 延伸阅读
+
+- 区域 3D 地形：[docs/regional-terrain-engine-plan.md](../docs/regional-terrain-engine-plan.md)
+- 能力地图与路线图：[docs/ROADMAP.md §4](../docs/ROADMAP.md)

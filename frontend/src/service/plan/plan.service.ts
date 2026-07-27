@@ -8,6 +8,7 @@ import type {
   PlanItem,
   PlanSseEvent,
   UpdatePlanPayload,
+  WorkspaceFilePayload,
 } from "./types";
 
 const PLAN_CHAT = `${API_V1_PREFIX}/plan`;
@@ -101,6 +102,7 @@ export const planService = {
         agentId: payload.agentId,
         model: payload.model,
         threadId: payload.threadId,
+        planId: payload.planId,
       }),
     });
 
@@ -131,5 +133,12 @@ export const planService = {
         yield event;
       }
     }
+  },
+
+  /** GET /api/v1/plan/workspace/file — agent workspace file (base64) for preview */
+  fetchWorkspaceFile(path: string) {
+    return get<WorkspaceFilePayload>(`${PLAN_CHAT}/workspace/file`, {
+      params: { path },
+    });
   },
 };

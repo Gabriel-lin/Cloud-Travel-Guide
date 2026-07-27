@@ -1,9 +1,7 @@
-"""Logical model aliases → LiteLLM provider routes.
+"""Model registry — logical aliases → LiteLLM routes.
 
-Production pattern:
-- Agents/UI use stable aliases (`gpt-5.5`, `opus-4.8`, `deepseek-v3`)
-- Registry maps each alias to a LiteLLM model string + optional api_base/api_key
-- Supports official providers and any OpenAI-compatible third-party gateway
+- Agents/UI use stable aliases (`gpt-5.5`, `opus-4.8`, `deepseek-v4-pro`)
+- Env provides API keys / bases; default alias auto-picks the first configured provider
 """
 
 from __future__ import annotations
@@ -62,7 +60,7 @@ def _default_catalog(settings: Settings) -> list[ModelSpec]:
     compat_base = settings.llm_openai_compat_base_url
 
     # Prefer dedicated provider keys; fall back to shared OpenAI-compatible gateway.
-    def openai_route(model: str) -> tuple[str | None, str | None]:
+    def openai_route() -> tuple[str | None, str | None]:
         if openai_key:
             return openai_base, openai_key
         if compat_key and compat_base:
@@ -70,7 +68,6 @@ def _default_catalog(settings: Settings) -> list[ModelSpec]:
         return openai_base, openai_key
 
     def anthropic_route() -> tuple[str, str | None, str | None]:
-        # Native Anthropic, or route via openai-compat gateway as openai/<alias>
         if anthropic_key:
             return "anthropic/claude-opus-4-8", None, anthropic_key
         if compat_key and compat_base:
@@ -78,13 +75,22 @@ def _default_catalog(settings: Settings) -> list[ModelSpec]:
         return "anthropic/claude-opus-4-8", None, anthropic_key
 
     def deepseek_route() -> tuple[str, str | None, str | None]:
+        # DeepSeek OpenAI-compatible API — pass model id via openai/ prefix + api_base.
         if deepseek_key:
-            return "deepseek/deepseek-chat", deepseek_base, deepseek_key
+            return (
+                "openai/deepseek-v4-pro",
+                deepseek_base or "https://api.deepseek.com",
+                deepseek_key,
+            )
         if compat_key and compat_base:
-            return "openai/deepseek-v3", compat_base, compat_key
-        return "deepseek/deepseek-chat", deepseek_base, deepseek_key
+            return "openai/deepseek-v4-pro", compat_base, compat_key
+        return (
+            "openai/deepseek-v4-pro",
+            deepseek_base or "https://api.deepseek.com",
+            deepseek_key,
+        )
 
-    gpt_base, gpt_key = openai_route("gpt-5.5")
+    gpt_base, gpt_key = openai_route()
     claude_model, claude_base, claude_key = anthropic_route()
     ds_model, ds_base, ds_key = deepseek_route()
 
@@ -110,17 +116,52 @@ def _default_catalog(settings: Settings) -> list[ModelSpec]:
             description="Anthropic Claude Opus (native or via compatible gateway)",
         ),
         ModelSpec(
-            alias="deepseek-v3",
+            alias="deepseek-v4-pro",
             litellm_model=ds_model,
-            label="DeepSeek V3",
+            label="DeepSeek V4 Pro",
             provider="deepseek"
             if deepseek_key
             else ("openai_compat" if compat_key else "deepseek"),
             api_base=ds_base,
             api_key=ds_key,
-            description="DeepSeek chat models",
+            description="DeepSeek V4 Pro",
         ),
     ]
+
+
+def _provider_priority_aliases(settings: Settings) -> list[str]:
+    """Ordered aliases to prefer as default based on which env keys are set."""
+    aliases: list[str] = []
+    if settings.openai_api_key and settings.openai_api_base:
+        aliases.append("gpt-5.5")
+    if settings.anthropic_api_key:
+        aliases.append("opus-4.8")
+    if settings.deepseek_api_key and settings.deepseek_api_base:
+        aliases.append("deepseek-v4-pro")
+    # OpenAI key without base still counts (official API)
+    if settings.openai_api_key and "gpt-5.5" not in aliases:
+        aliases.insert(0, "gpt-5.5")
+    if settings.llm_openai_compat_api_key and settings.llm_openai_compat_base_url and not aliases:
+        aliases.extend(["gpt-5.5", "opus-4.8", "deepseek-v4-pro"])
+    return aliases
+
+
+def resolve_default_alias(settings: Settings, catalog: list[ModelSpec]) -> str:
+    """Pick default model: honor LLM_DEFAULT_MODEL when configured, else first ready provider."""
+    by_alias = {m.alias: m for m in catalog}
+    configured = {m.alias for m in catalog if m.is_configured()}
+
+    preferred = settings.llm_default_model
+    if preferred in configured:
+        return preferred
+
+    for alias in _provider_priority_aliases(settings):
+        if alias in configured:
+            return alias
+
+    if preferred in by_alias:
+        return preferred
+    return catalog[0].alias
 
 
 def _parse_alias_overrides(raw: str | None) -> dict[str, str]:
@@ -143,6 +184,17 @@ class ModelRegistry:
         if key not in self._models:
             raise KeyError(f"Unknown model alias: {key}")
         return self._models[key]
+
+    def resolve(self, preferred: str | None = None) -> ModelSpec:
+        """Return a configured model: preferred if ready, else registry default."""
+        if preferred:
+            try:
+                spec = self.get(preferred)
+                if spec.is_configured():
+                    return spec
+            except KeyError:
+                pass
+        return self.get(self.default_alias)
 
     def list_public(self) -> list[dict[str, Any]]:
         return [m.to_public_dict() for m in self._models.values()]
@@ -173,4 +225,5 @@ def get_model_registry() -> ModelRegistry:
                 )
             )
         catalog = remapped
-    return ModelRegistry(catalog, settings.llm_default_model)
+    default_alias = resolve_default_alias(settings, catalog)
+    return ModelRegistry(catalog, default_alias)

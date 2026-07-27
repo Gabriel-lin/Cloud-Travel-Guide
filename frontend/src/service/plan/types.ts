@@ -37,13 +37,57 @@ export type PlanChatRequest = {
   agentId: string;
   model?: string;
   threadId?: string;
+  planId?: string;
 };
 
 export type PlanSseEvent =
-  | { type: "start"; agentId: string; model: string; threadId?: string | null }
+  | {
+      type: "start";
+      agentId: string;
+      model: string;
+      threadId?: string | null;
+      planId?: string | null;
+    }
   | { type: "delta"; text: string }
+  | {
+      type: "tool_start";
+      toolCallId?: string;
+      name: string;
+      input?: unknown;
+    }
+  | {
+      type: "tool_result";
+      toolCallId?: string;
+      name: string;
+      outputPreview?: string;
+    }
+  | {
+      type: "tool_error";
+      toolCallId?: string;
+      name: string;
+      message: string;
+    }
+  | {
+      type: "job_progress";
+      jobId: string;
+      status: string;
+      message?: string | null;
+      percent?: number | null;
+    }
+  | {
+      type: "plan_updated";
+      planId: string;
+      summary?: string;
+    }
   | { type: "error"; message: string }
   | { type: "done" };
+
+export type WorkspaceFilePayload = {
+  path: string;
+  filename: string;
+  mimeType: string;
+  data: string;
+};
 
 /** 用户行程实体 — 供列表/详情/编辑页使用 */
 export type PlanItem = {
@@ -63,6 +107,7 @@ export type PlanDetail = PlanItem & {
     lon: number;
     stayDays?: number;
   }>;
+  itinerary?: Record<string, unknown> | null;
 };
 
 export type CreatePlanPayload = {

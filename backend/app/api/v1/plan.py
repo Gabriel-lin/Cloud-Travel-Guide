@@ -2,11 +2,14 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
 
-from backend.app.api.deps import get_plan_chat_service
+from backend.app.api.deps import get_current_user, get_db, get_plan_chat_service
 from backend.app.core.exceptions import AppError
-from backend.app.schemas.plan import AgentsResponse, PlanChatRequest
+from backend.app.models.user import User
+from backend.app.schemas.plan import AgentsResponse, PlanChatRequest, WorkspaceFileResponse
 from backend.app.services.plan_chat_service import PlanChatService
+from backend.app.services.workspace_file_service import read_workspace_file_base64
 
 router = APIRouter(prefix="/plan", tags=["plan"])
 
@@ -22,16 +25,21 @@ def list_agents(
 async def plan_chat(
     body: PlanChatRequest,
     service: Annotated[PlanChatService, Depends(get_plan_chat_service)],
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
 ) -> StreamingResponse:
-    """SSE streaming chat — OpenAI-compatible models via LiteLLM router."""
-    # Validate before headers are sent so AppError maps to JSON HTTP errors.
+    """SSE streaming chat with LangGraph tool loop (auth required)."""
     try:
         service.resolve_agent(body.agent_id)
+        if body.plan_id is not None:
+            from backend.app.services.plan_service import PlanService
+
+            PlanService(db).get_plan(user, body.plan_id)
     except AppError:
         raise
 
     async def event_generator():
-        async for chunk in service.stream_chat(body):
+        async for chunk in service.stream_chat(body, user=user, db=db):
             yield chunk
 
     return StreamingResponse(
@@ -43,3 +51,13 @@ async def plan_chat(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.get("/workspace/file", response_model_by_alias=True)
+def get_workspace_file(
+    path: str,
+    _user: Annotated[User, Depends(get_current_user)],
+) -> WorkspaceFileResponse:
+    """Download a file from the agent workspace (base64) for in-chat preview."""
+    payload = read_workspace_file_base64(path)
+    return WorkspaceFileResponse.model_validate(payload)

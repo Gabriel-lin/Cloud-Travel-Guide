@@ -1,0 +1,17 @@
+# Keep build context small and avoid copying host venv / caches into the image.
+.venv/
+venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.htmlcov/
+.coverage
+.agent_workspace/
+*.egg-info/
+.DS_Store
+.env
+.env.*
+!.env.example

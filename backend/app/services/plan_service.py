@@ -56,6 +56,7 @@ def _to_detail(plan: TravelPlan) -> PlanDetailResponse:
         destination_count=plan.destination_count,
         updated_at=plan.updated_at,
         destinations=destinations,
+        itinerary=getattr(plan, "itinerary", None),
     )
 
 
