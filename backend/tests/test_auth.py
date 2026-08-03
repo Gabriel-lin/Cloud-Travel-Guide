@@ -193,6 +193,16 @@ def test_desktop_oauth_code_is_single_use() -> None:
         Base.metadata.drop_all(bind=engine)
 
 
+def test_frontend_oauth_redirect_includes_login_code() -> None:
+    redirect = OAuthService._build_frontend_redirect(
+        "http://127.0.0.1:3000/auth/callback",
+        "one-time-login-code",
+    )
+    assert redirect.startswith("http://127.0.0.1:3000/auth/callback?")
+    assert "code=one-time-login-code" in redirect
+    assert "oauth=success" not in redirect
+
+
 def test_login_rejects_unregistered_user(client: TestClient) -> None:
     response = client.post(
         "/api/v1/auth/login",

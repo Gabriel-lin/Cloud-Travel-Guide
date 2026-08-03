@@ -52,15 +52,13 @@ export function setAppLocale(locale: AppLocale): LocaleState {
 export function initLocaleBridge(): void {
   bootstrapLocaleFromSettings();
 
-  ipcMain.removeHandler(LOCALE_IPC.getState);
   ipcMain.removeHandler(LOCALE_IPC.setLocale);
   ipcMain.removeAllListeners(LOCALE_IPC.getStateSync);
 
+  // 同步应答：preload 在 document-start 阻塞读取，保证首屏就是正确语言。
   ipcMain.on(LOCALE_IPC.getStateSync, (event) => {
     event.returnValue = getLocaleState();
   });
-
-  ipcMain.handle(LOCALE_IPC.getState, () => getLocaleState());
 
   ipcMain.handle(LOCALE_IPC.setLocale, (_event, locale: unknown) => {
     if (typeof locale !== "string" || !isAppLocale(locale)) {

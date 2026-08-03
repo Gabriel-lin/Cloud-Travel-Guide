@@ -20,12 +20,16 @@
   "deleteThreadTitle": "删除会话？",
   "deleteThreadDescription": "删除后无法恢复，确定要删除这条会话吗？",
   "cancel": "取消",
+  "cancelled": "已取消",
   "confirm": "确定",
   "emptyGreeting": "今天想去哪儿？",
   "emptyHint": "描述目的地、天数与偏好，智能体将帮你草拟行程。",
   "composerPlaceholder": "描述你的旅行想法…",
   "attach": "添加附件",
   "send": "发送",
+  "stop": "停止",
+  "edit": "编辑",
+  "saveEdit": "保存",
   "agentPlaceholder": "选择智能体",
   "agentBuiltin": "内置专家",
   "agentExternal": "外界专家",
@@ -65,5 +69,6 @@
   "fileQuickView": "文件速览",
   "fileLoading": "正在加载文件…",
   "fileLoadFailed": "文件加载失败",
+  "fileUnavailable": "文件预览不可用",
   "binaryPreviewHint": "该文件无法在线预览，请下载后查看。"
 }

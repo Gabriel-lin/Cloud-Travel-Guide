@@ -20,12 +20,16 @@
   "deleteThreadTitle": "Delete conversation?",
   "deleteThreadDescription": "This cannot be undone. Delete this conversation?",
   "cancel": "Cancel",
+  "cancelled": "Cancelled",
   "confirm": "Save",
   "emptyGreeting": "Where to next?",
   "emptyHint": "Describe destination, days, and preferences — an agent will draft your trip.",
   "composerPlaceholder": "Describe your travel ideas…",
   "attach": "Add attachment",
   "send": "Send",
+  "stop": "Stop",
+  "edit": "Edit",
+  "saveEdit": "Save",
   "agentPlaceholder": "Select agent",
   "agentBuiltin": "Built-in experts",
   "agentExternal": "External experts",
@@ -65,5 +69,6 @@
   "fileQuickView": "Quick view",
   "fileLoading": "Loading file…",
   "fileLoadFailed": "Failed to load file",
+  "fileUnavailable": "File preview unavailable",
   "binaryPreviewHint": "This file can’t be previewed inline. Download to view it."
 }

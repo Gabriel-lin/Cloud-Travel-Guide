@@ -89,6 +89,38 @@ export type WorkspaceFilePayload = {
   data: string;
 };
 
+export type PlanThreadStatus = "regular" | "archived";
+
+export type PlanThreadMetadata = {
+  remoteId: string;
+  externalId?: string | null;
+  status: PlanThreadStatus;
+  title?: string | null;
+  lastMessageAt?: string | null;
+  custom?: Record<string, unknown> | null;
+  updatedAt?: string;
+};
+
+export type PlanThreadListResponse = {
+  threads: PlanThreadMetadata[];
+};
+
+export type PlanThreadInitializeResponse = {
+  remoteId: string;
+  externalId?: string | null;
+};
+
+export type PlanThreadHistoryRepo = {
+  messages: unknown[];
+  headId?: string | null;
+};
+
+export type UpdatePlanThreadPayload = {
+  title?: string;
+  status?: PlanThreadStatus;
+  custom?: Record<string, unknown> | null;
+};
+
 /** 用户行程实体 — 供列表/详情/编辑页使用 */
 export type PlanItem = {
   id: string;

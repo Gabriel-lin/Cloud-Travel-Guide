@@ -60,7 +60,23 @@ export function ImagePart() {
 }
 
 function LoadingIndicator() {
+  const isRunning = useAuiState((s) => s.message.status?.type === "running");
+  if (!isRunning) return null;
   return <StreamingDots className="my-1" />;
+}
+
+function CancelledPlaceholder() {
+  const { t } = useAppLocale();
+  const show = useAuiState((s) => {
+    const status = s.message.status;
+    return (
+      status?.type === "incomplete" &&
+      status.reason === "cancelled" &&
+      s.message.parts.length === 0
+    );
+  });
+  if (!show) return null;
+  return <p className="text-xs text-ink-500">{t("plan.cancelled")}</p>;
 }
 
 /** Dots while waiting for the next segment — never duplicate tool shimmer / markdown cursor. */
@@ -102,6 +118,7 @@ function LegacyToolsFallback() {
 export function MessageParts() {
   return (
     <>
+      <CancelledPlaceholder />
       <LegacyToolsFallback />
       <MessagePrimitive.Parts
         unstable_showEmptyOnNonTextEnd={false}

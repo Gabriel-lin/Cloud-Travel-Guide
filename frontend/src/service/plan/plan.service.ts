@@ -1,4 +1,4 @@
-import { API_BASE_URL, API_V1_PREFIX, del, get, getAccessToken, post, put } from "@/service/base";
+import { API_BASE_URL, API_V1_PREFIX, del, get, getAccessToken, patch, post, put } from "@/service/base";
 import type { PageQuery, PageResult } from "@/service/base";
 import type {
   CreatePlanPayload,
@@ -7,12 +7,18 @@ import type {
   PlanDetail,
   PlanItem,
   PlanSseEvent,
+  PlanThreadHistoryRepo,
+  PlanThreadInitializeResponse,
+  PlanThreadListResponse,
+  PlanThreadMetadata,
   UpdatePlanPayload,
+  UpdatePlanThreadPayload,
   WorkspaceFilePayload,
 } from "./types";
 
 const PLAN_CHAT = `${API_V1_PREFIX}/plan`;
 const PLANS = `${API_V1_PREFIX}/plans`;
+const PLAN_THREADS = `${API_V1_PREFIX}/plan/threads`;
 
 function parseSseChunk(buffer: string): { events: PlanSseEvent[]; rest: string } {
   const parts = buffer.split("\n\n");
@@ -115,22 +121,34 @@ export const planService = {
     const decoder = new TextDecoder();
     let buffer = "";
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const parsed = parseSseChunk(buffer);
-      buffer = parsed.rest;
-      for (const event of parsed.events) {
-        yield event;
-        if (event.type === "done") return;
+    try {
+      while (true) {
+        if (signal?.aborted) return;
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parsed = parseSseChunk(buffer);
+        buffer = parsed.rest;
+        for (const event of parsed.events) {
+          yield event;
+          if (event.type === "done") return;
+        }
       }
-    }
 
-    if (buffer.trim()) {
-      const parsed = parseSseChunk(`${buffer}\n\n`);
-      for (const event of parsed.events) {
-        yield event;
+      if (buffer.trim()) {
+        const parsed = parseSseChunk(`${buffer}\n\n`);
+        for (const event of parsed.events) {
+          yield event;
+        }
+      }
+    } catch (error) {
+      if (signal?.aborted) return;
+      throw error;
+    } finally {
+      try {
+        await reader.cancel();
+      } catch {
+        // ignore cancel errors
       }
     }
   },
@@ -140,5 +158,40 @@ export const planService = {
     return get<WorkspaceFilePayload>(`${PLAN_CHAT}/workspace/file`, {
       params: { path },
     });
+  },
+
+  /** GET /api/v1/plan/threads */
+  listPlanThreads() {
+    return get<PlanThreadListResponse>(PLAN_THREADS);
+  },
+
+  /** POST /api/v1/plan/threads — idempotent initialize */
+  initializePlanThread(threadId: string) {
+    return post<PlanThreadInitializeResponse>(PLAN_THREADS, { threadId });
+  },
+
+  /** GET /api/v1/plan/threads/:id */
+  getPlanThread(threadId: string) {
+    return get<PlanThreadMetadata>(`${PLAN_THREADS}/${threadId}`);
+  },
+
+  /** PATCH /api/v1/plan/threads/:id */
+  updatePlanThread(threadId: string, payload: UpdatePlanThreadPayload) {
+    return patch<PlanThreadMetadata>(`${PLAN_THREADS}/${threadId}`, payload);
+  },
+
+  /** DELETE /api/v1/plan/threads/:id */
+  deletePlanThread(threadId: string) {
+    return del<void>(`${PLAN_THREADS}/${threadId}`);
+  },
+
+  /** GET /api/v1/plan/threads/:id/history */
+  getPlanThreadHistory(threadId: string) {
+    return get<PlanThreadHistoryRepo>(`${PLAN_THREADS}/${threadId}/history`);
+  },
+
+  /** PUT /api/v1/plan/threads/:id/history */
+  putPlanThreadHistory(threadId: string, repo: PlanThreadHistoryRepo) {
+    return put<PlanThreadHistoryRepo>(`${PLAN_THREADS}/${threadId}/history`, repo);
   },
 };

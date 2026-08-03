@@ -5,8 +5,9 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme {
-  --font-sans: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji",
-    "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-sans:
+    ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji",
+    "Segoe UI Symbol", "Noto Color Emoji";
 
   /* 语义色 — 随 :root / .dark 中的 CSS 变量切换 */
   --color-surface-950: var(--ctg-surface-950);
@@ -15,14 +16,16 @@
   --color-surface-700: var(--ctg-surface-700);
   --color-surface-600: var(--ctg-surface-600);
 
-  /* 翠绿强调（两主题共用） */
-  --color-brand-50: #ecfdf5;
-  --color-brand-100: #d1fae5;
-  --color-brand-400: #34d399;
-  --color-brand-500: #10b981;
-  --color-brand-600: #059669;
-  --color-brand-700: #047857;
+  /* 翠绿强调 — 同样随主题切换：暗底要亮、亮底要暗，否则强调色会糊在背景里 */
+  --color-brand-50: var(--ctg-brand-50);
+  --color-brand-100: var(--ctg-brand-100);
+  --color-brand-400: var(--ctg-brand-400);
+  --color-brand-500: var(--ctg-brand-500);
+  --color-brand-600: var(--ctg-brand-600);
+  --color-brand-700: var(--ctg-brand-700);
 
+  /* ink-50 专用于品牌实色块上的文字（两主题都接近纯白） */
+  --color-ink-50: var(--ctg-ink-50);
   --color-ink-100: var(--ctg-ink-100);
   --color-ink-200: var(--ctg-ink-200);
   --color-ink-300: var(--ctg-ink-300);
@@ -79,50 +82,72 @@ body {
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/**
+ * 亮色 — 薄荷绿面 + 压暗的品牌绿。
+ *
+ * **整套面色不含纯白**。900 是最高的抬升面（卡片 / 浮层 / 侧栏），也只到 #f2f9f5：
+ * 纯白在大面积铺开时会过曝，把照片、品牌绿和相邻面全部漂淡；同时 950（应用底、
+ * 照片蒙版、代码块、斑马纹）压到更低一档，"底 → 抬升面"之间才有稳定的明暗差可用。
+ *
+ * 对比度以底色 #dfece5（而非白色）为基准核算，正文级用色均 ≥ 4.5:1。
+ */
 :root {
-  /* 亮色 — 浅墨绿底 */
-  --ctg-surface-950: #f0f7f3;
-  --ctg-surface-900: #ffffff;
-  --ctg-surface-800: #e8f3ec;
-  --ctg-surface-700: #d6ebe0;
-  --ctg-surface-600: #bdd9cc;
-  --ctg-ink-100: #0a1610;
-  --ctg-ink-200: #1a2e24;
-  --ctg-ink-300: #3d5c4a;
-  --ctg-ink-400: #5f7d6a;
+  --ctg-surface-950: #dfece5; /* 应用底色 / 照片蒙版 / 下沉块 */
+  --ctg-surface-900: #f2f9f5; /* 抬升面：卡片 / 浮层 / 侧栏 */
+  --ctg-surface-800: #d3e6db; /* 填充 / hover */
+  --ctg-surface-700: #bfd8ca; /* 分隔线 / 边框 */
+  --ctg-surface-600: #a3c4b1; /* 强调边框 */
 
-  --background: #f0f7f3;
-  --foreground: #0a1610;
-  --card: #ffffff;
-  --card-foreground: #0a1610;
-  --popover: #ffffff;
-  --popover-foreground: #0a1610;
-  --primary: #059669;
-  --primary-foreground: #f0fdf8;
-  --secondary: #e8f3ec;
-  --secondary-foreground: #1a2e24;
-  --muted: #e8f3ec;
-  --muted-foreground: #5f7d6a;
-  --accent: #d6ebe0;
-  --accent-foreground: #0a1610;
+  --ctg-ink-50: #f2fbf6;
+  --ctg-ink-100: #0d1a14; /* 主文字 14.7:1 */
+  --ctg-ink-200: #24352d; /* 次级标题 10.7:1 */
+  --ctg-ink-300: #47574f; /* 正文次级 6.3:1 */
+  --ctg-ink-400: #5c6b62; /* 弱化文字 4.6:1 */
+
+  /**
+   * 亮底上的品牌绿按“用途”定档而非线性明度阶：
+   * 400 = 强调文字（5.5:1，最小到 10px 也达标）、500 = 图标 / 描边 / 图形填充、
+   * 600 = 配 ink-50 的实色块、700 = 其 hover 态。
+   */
+  --ctg-brand-50: #ecfdf5;
+  --ctg-brand-100: #d1fae5;
+  --ctg-brand-400: #047857;
+  --ctg-brand-500: #059669;
+  --ctg-brand-600: #047857;
+  --ctg-brand-700: #065f46;
+
+  --background: #dfece5;
+  --foreground: #0d1a14;
+  --card: #f2f9f5;
+  --card-foreground: #0d1a14;
+  --popover: #f2f9f5;
+  --popover-foreground: #0d1a14;
+  --primary: #047857;
+  --primary-foreground: #f2fbf6;
+  --secondary: #d3e6db;
+  --secondary-foreground: #24352d;
+  --muted: #d3e6db;
+  --muted-foreground: #5c6b62;
+  --accent: #d3e6db;
+  --accent-foreground: #0d1a14;
   --destructive: oklch(0.577 0.245 27.325);
-  --border: #d6ebe0;
-  --input: #d6ebe0;
-  --ring: #10b981;
-  --chart-1: #34d399;
-  --chart-2: #10b981;
-  --chart-3: #059669;
-  --chart-4: #047857;
-  --chart-5: #5f7d6a;
+  --border: #bfd8ca;
+  --input: #b0cdbc;
+  --ring: #059669;
+  --chart-1: #10b981;
+  --chart-2: #059669;
+  --chart-3: #047857;
+  --chart-4: #065f46;
+  --chart-5: #5c6b62;
   --radius: 0.625rem;
-  --sidebar: #ffffff;
-  --sidebar-foreground: #0a1610;
-  --sidebar-primary: #059669;
-  --sidebar-primary-foreground: #f0fdf8;
-  --sidebar-accent: #e8f3ec;
-  --sidebar-accent-foreground: #1a2e24;
-  --sidebar-border: #d6ebe0;
-  --sidebar-ring: #10b981;
+  --sidebar: #f2f9f5;
+  --sidebar-foreground: #0d1a14;
+  --sidebar-primary: #047857;
+  --sidebar-primary-foreground: #f2fbf6;
+  --sidebar-accent: #d3e6db;
+  --sidebar-accent-foreground: #24352d;
+  --sidebar-border: #bfd8ca;
+  --sidebar-ring: #059669;
 }
 
 .dark {
@@ -131,10 +156,20 @@ body {
   --ctg-surface-800: #142820;
   --ctg-surface-700: #1c3629;
   --ctg-surface-600: #254532;
+
+  --ctg-ink-50: #eafdf3;
   --ctg-ink-100: #dcfceb;
   --ctg-ink-200: #b8e8ce;
   --ctg-ink-300: #8fcfb0;
   --ctg-ink-400: #5f9d82;
+
+  /* 暗底上品牌绿保持发光感 */
+  --ctg-brand-50: #ecfdf5;
+  --ctg-brand-100: #d1fae5;
+  --ctg-brand-400: #34d399;
+  --ctg-brand-500: #10b981;
+  --ctg-brand-600: #059669;
+  --ctg-brand-700: #047857;
 
   --background: #030a06;
   --foreground: #dcfceb;
@@ -249,6 +284,58 @@ body {
     35% {
       transform: translateY(-5px);
       opacity: 1;
+    }
+  }
+
+  .route-card-fluid-orb {
+    animation: route-card-fluid-drift 16s ease-in-out infinite;
+  }
+
+  .route-card-fluid-orb-delayed {
+    animation: route-card-fluid-drift 20s ease-in-out infinite reverse;
+  }
+
+  .route-card-fluid-sheen {
+    background:
+      radial-gradient(
+        ellipse 80% 55% at 20% 0%,
+        color-mix(in srgb, var(--color-brand-400) 22%, transparent),
+        transparent 55%
+      ),
+      radial-gradient(
+        ellipse 70% 50% at 85% 100%,
+        color-mix(
+          in srgb,
+          var(--route-accent, var(--color-brand-500)) 18%,
+          transparent
+        ),
+        transparent 50%
+      );
+    animation: route-card-fluid-sheen 12s ease-in-out infinite alternate;
+  }
+
+  @keyframes route-card-fluid-drift {
+    0%,
+    100% {
+      transform: translate(0, 0) rotate(0deg) scale(1);
+      border-radius: 42% 58% 65% 35%;
+    }
+    33% {
+      transform: translate(6%, -8%) rotate(8deg) scale(1.06);
+      border-radius: 58% 42% 38% 62%;
+    }
+    66% {
+      transform: translate(-5%, 5%) rotate(-6deg) scale(0.96);
+      border-radius: 48% 52% 60% 40%;
+    }
+  }
+
+  @keyframes route-card-fluid-sheen {
+    0% {
+      opacity: 0.25;
+    }
+    100% {
+      opacity: 0.5;
     }
   }
 }

@@ -11,7 +11,7 @@ export function LocaleBootstrapScript() {
     <script
       suppressHydrationWarning
       dangerouslySetInnerHTML={{
-        __html: `(function(){function apply(locale){var root=document.documentElement;root.lang=locale==="en"?"en":"zh-CN";}try{var locale=${JSON.stringify(DEFAULT_SETTINGS.locale)};var api=window.electronAPI;if(api&&api.locale&&api.locale.initialState){locale=api.locale.initialState.locale;}else{var raw=localStorage.getItem(${JSON.stringify(BROWSER_SETTINGS_KEY)});if(raw){var parsed=JSON.parse(raw);if(parsed&&parsed.locale==="en")locale="en";else if(parsed&&parsed.locale==="zh-CN")locale="zh-CN";}}apply(locale);}catch(e){apply("zh-CN");}})();`,
+        __html: `(function(){function apply(locale){var root=document.documentElement;root.lang=locale==="en"?"en":"zh-CN";}try{var locale=${JSON.stringify(DEFAULT_SETTINGS.locale)};var api=window.electronAPI;if(api&&api.locale){locale=api.locale.readState().locale;}else{var raw=localStorage.getItem(${JSON.stringify(BROWSER_SETTINGS_KEY)});if(raw){var parsed=JSON.parse(raw);if(parsed&&parsed.locale==="en")locale="en";else if(parsed&&parsed.locale==="zh-CN")locale="zh-CN";}}apply(locale);}catch(e){apply("zh-CN");}})();`,
       }}
     />
   );

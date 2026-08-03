@@ -17,8 +17,9 @@ export function PlanContent() {
         style={{ backgroundImage: `url(${PLAN_BG})` }}
         aria-hidden
       />
+      {/* 对话是长文阅读面，亮色下照片必须退成极淡的底纹，否则正文压在景物上 */}
       <div
-        className="pointer-events-none absolute inset-0 bg-surface-950/55 dark:bg-surface-950/60"
+        className="pointer-events-none absolute inset-0 bg-surface-950/75 backdrop-blur-[2px] dark:bg-surface-950/60 dark:backdrop-blur-none"
         aria-hidden
       />
 

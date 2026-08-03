@@ -4,7 +4,9 @@ export {
   establishCookieSession,
   establishSession,
   initAuthStore,
+  resumeDesktopOAuthSession,
   selectIsAuthenticated,
+  syncDesktopSessionFromDisk,
   useAuthStore,
 } from "./auth-store";
 export {

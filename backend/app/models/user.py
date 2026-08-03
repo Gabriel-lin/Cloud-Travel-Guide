@@ -12,6 +12,7 @@ from backend.app.models.base import Base
 
 if TYPE_CHECKING:
     from backend.app.models.oauth_account import OAuthAccount
+    from backend.app.models.plan_chat_thread import PlanChatThread
     from backend.app.models.travel_plan import TravelPlan
 
 
@@ -48,6 +49,10 @@ class User(Base):
         cascade="all, delete-orphan",
     )
     travel_plans: Mapped[list[TravelPlan]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    plan_chat_threads: Mapped[list[PlanChatThread]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
     )

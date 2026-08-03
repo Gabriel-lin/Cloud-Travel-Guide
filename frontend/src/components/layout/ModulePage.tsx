@@ -39,8 +39,10 @@ export function ModulePage({
             style={{ backgroundImage: `url(${backgroundImage})` }}
             aria-hidden
           />
+          {/* 亮色下这层是“提亮”而非“压暗”；蒙版色本身已是柔和的灰绿，
+              不必再靠高不透明度洗白，留一点浓度给照片 */}
           <div
-            className="pointer-events-none absolute inset-0 bg-surface-950/40 dark:bg-surface-950/50"
+            className="pointer-events-none absolute inset-0 bg-surface-950/70 backdrop-blur-[2px] dark:bg-surface-950/50 dark:backdrop-blur-none"
             aria-hidden
           />
         </>
@@ -50,7 +52,7 @@ export function ModulePage({
         className={cn(
           "relative z-10 shrink-0 border-b border-surface-700/80 bg-surface-900/40 backdrop-blur-md",
           backgroundImage &&
-            "border-surface-700/50 bg-surface-900/25 backdrop-blur-sm",
+            "border-surface-700/50 bg-surface-900/45 backdrop-blur-sm dark:bg-surface-900/25",
           headerClassName,
         )}
       >

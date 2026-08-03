@@ -131,17 +131,24 @@ export function selectResolvedTheme(state: SettingsStore): ResolvedTheme {
 // 在 React 渲染之外执行；仅在挂载后（initSettingsStore 之后）才会触发。
 // ---------------------------------------------------------------------------
 
-useSettingsStore.subscribe((state, prev) => {
+function syncDocumentToSettings(state: SettingsStore): void {
   if (typeof document === "undefined") return;
 
-  const resolved = selectResolvedTheme(state);
-  if (resolved !== selectResolvedTheme(prev)) {
-    applyResolvedThemeToDocument(resolved);
-  }
+  applyResolvedThemeToDocument(selectResolvedTheme(state));
 
-  if (state.settings.locale !== prev.settings.locale) {
-    document.documentElement.lang = LOCALE_HTML_LANG[state.settings.locale];
-    void i18n.changeLanguage(state.settings.locale);
+  const { locale } = state.settings;
+  document.documentElement.lang = LOCALE_HTML_LANG[locale];
+  if (i18n.language !== locale) {
+    void i18n.changeLanguage(locale);
+  }
+}
+
+useSettingsStore.subscribe((state, prev) => {
+  const themeChanged = selectResolvedTheme(state) !== selectResolvedTheme(prev);
+  const localeChanged = state.settings.locale !== prev.settings.locale;
+
+  if (themeChanged || localeChanged) {
+    syncDocumentToSettings(state);
   }
 });
 
@@ -184,33 +191,19 @@ function initElectron(): void {
   const localeApi = getElectronLocaleAPI();
   if (!themeApi || !localeApi) return;
 
-  const initialTheme = themeApi.initialState;
-  const initialLocale = localeApi.initialState;
-  if (initialTheme && initialLocale) {
-    useSettingsStore.setState({
-      settings: { theme: initialTheme.preference, locale: initialLocale.locale },
-      systemTheme: initialTheme.system,
-      ready: true,
-    });
-  }
-
+  // 先订阅再读取：主进程状态是同步可读的，两步之间不会漏掉广播。
   themeApi.onStateChanged(applyElectronTheme);
   localeApi.onStateChanged(applyElectronLocale);
 
-  if (!useSettingsStore.getState().ready) {
-    void Promise.all([themeApi.getState(), localeApi.getState()]).then(
-      ([themeState, localeState]) => {
-        useSettingsStore.setState({
-          settings: {
-            theme: themeState.preference,
-            locale: localeState.locale,
-          },
-          systemTheme: themeState.system,
-          ready: true,
-        });
-      },
-    );
-  }
+  const themeState = themeApi.readState();
+  useSettingsStore.setState({
+    settings: {
+      theme: themeState.preference,
+      locale: localeApi.readState().locale,
+    },
+    systemTheme: themeState.system,
+    ready: true,
+  });
 }
 
 /** 挂载后调用一次：从运行时（浏览器 / Electron）填充真实设置并接入更新。 */
@@ -223,4 +216,8 @@ export function initSettingsStore(): void {
   } else {
     initBrowser();
   }
+
+  // 首屏内联脚本与 store 各自读取运行时，这里收敛一次，杜绝两者判断不一致时
+  // DOM 停在错误主题上（订阅只在“变化”时触发，补不了这种初始偏差）。
+  syncDocumentToSettings(useSettingsStore.getState());
 }

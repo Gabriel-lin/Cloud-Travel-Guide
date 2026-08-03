@@ -22,8 +22,11 @@ export function isThemePreference(value: string): value is ThemePreference {
 }
 
 export const THEME_IPC = {
-  getState: "theme:getState",
-  getStateSync: "theme:getStateSync",
+  /**
+   * 同步通道：preload 必须在 document-start 就拿到真实主题，异步 invoke 解析得太晚，
+   * 首屏内联脚本只能读到占位值并按暗色渲染。
+   */
+  getStateSync: "theme:getState-sync",
   setPreference: "theme:setPreference",
   stateChanged: "theme:state-changed",
 } as const;
@@ -32,6 +35,6 @@ export const DEFAULT_THEME_PREFERENCE: ThemePreference = "dark";
 
 /** 与 globals.css `--ctg-surface-950` / `body.bg-surface-950` 对齐 */
 export const NATIVE_CHROME_COLORS: Record<ResolvedTheme, string> = {
-  light: "#f0f7f3",
+  light: "#dfece5",
   dark: "#030a06",
 };

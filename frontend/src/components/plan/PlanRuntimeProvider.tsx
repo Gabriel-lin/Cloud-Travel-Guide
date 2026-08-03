@@ -20,9 +20,11 @@ import { createLocalStorageAdapter } from "@assistant-ui/core/react";
 import type { ReactNode } from "react";
 import { useMemo } from "react";
 
+import { PlanCloudThreadSync } from "@/components/plan/PlanCloudThreadSync";
+import { StreamingDots } from "@/components/plan/streaming-dots";
+
 import {
   basename,
-  encodeUtf8Base64,
   isMarkdownPath,
   isPdfPath,
   mimeForPath,
@@ -30,11 +32,14 @@ import {
   parseFileToolArgs,
 } from "@/components/plan/artifact-utils";
 import { filePartFromToolResult } from "@/components/plan/tool-file-parts";
+import { createPlanRemoteThreadAdapter } from "@/components/plan/plan-remote-thread-adapter";
+import { toWorkspaceFileDataRef } from "@/lib/plan/sanitize-history-for-cloud";
 import { planService } from "@/service/plan";
 import type { PlanChatMessage } from "@/service/plan";
+import { useAuthStore } from "@/store/auth-store";
 import { usePlanUiStore } from "@/store/plan-ui-store";
 
-const PLAN_THREAD_STORAGE_PREFIX = "ctg-plan:";
+import { PLAN_THREAD_STORAGE_PREFIX } from "@/lib/plan/thread-storage";
 
 type StoredThread = Awaited<
   ReturnType<RemoteThreadListAdapter["list"]>
@@ -60,7 +65,10 @@ function withPinnedThreadOrder(
     ...adapter,
     async list() {
       const result = await adapter.list();
-      return { ...result, threads: sortThreadsByPinned(result.threads) };
+      return {
+        ...result,
+        threads: sortThreadsByPinned(result.threads ?? []),
+      };
     },
   };
 }
@@ -127,23 +135,12 @@ function maybeFilePartFromWrite(
   if (!filePath || text == null || text === "") return null;
   if (!isMarkdownPath(filePath) && !isPdfPath(filePath)) return null;
 
-  if (isMarkdownPath(filePath)) {
-    return {
-      type: "file",
-      filename: basename(filePath),
-      mimeType: mimeForPath(filePath),
-      data: encodeUtf8Base64(text),
-    };
-  }
-
-  // PDF via write_file is expected as base64 text payload
-  const cleaned = text.replace(/\s/g, "");
-  if (!/^[A-Za-z0-9+/=]+$/.test(cleaned.slice(0, 64))) return null;
+  // Prefer workspace refs so history stays small and syncs across clients.
   return {
     type: "file",
     filename: basename(filePath),
-    mimeType: "application/pdf",
-    data: cleaned,
+    mimeType: mimeForPath(filePath),
+    data: toWorkspaceFileDataRef(filePath),
   };
 }
 
@@ -163,6 +160,11 @@ function createPlanChatModelAdapter(
         content: parts.map((part) =>
           part.type === "tool-call" ? { ...part } : { ...part },
         ) as ThreadAssistantMessagePart[],
+      });
+
+      const cancelledResult = () => ({
+        ...snapshot(),
+        status: { type: "incomplete" as const, reason: "cancelled" as const },
       });
 
       const ensureTextPart = (): number => {
@@ -204,6 +206,10 @@ function createPlanChatModelAdapter(
           },
           abortSignal,
         )) {
+          if (abortSignal.aborted) {
+            yield cancelledResult();
+            return;
+          }
           if (event.type === "start") {
             yield snapshot();
             continue;
@@ -324,16 +330,18 @@ function createPlanChatModelAdapter(
           }
         }
 
+        if (abortSignal.aborted) {
+          yield cancelledResult();
+          return;
+        }
+
         yield {
           ...snapshot(),
           status: { type: "complete", reason: "stop" },
         };
       } catch (error) {
         if (abortSignal.aborted) {
-          yield {
-            ...snapshot(),
-            status: { type: "incomplete", reason: "cancelled" },
-          };
+          yield cancelledResult();
           return;
         }
         const message =
@@ -395,16 +403,26 @@ function usePlanLocalRuntime() {
 }
 
 export function PlanRuntimeProvider({ children }: { children: ReactNode }) {
+  const authReady = useAuthStore((s) => s.ready);
+  const isAuthenticated = useAuthStore((s) => s.status === "authenticated");
+
+  const titleGenerator = useMemo(
+    () => ({ generateTitle: generateThreadTitle }),
+    [],
+  );
+
   const threadListAdapter = useMemo(
     () =>
       withPinnedThreadOrder(
-        createLocalStorageAdapter({
-          storage: browserAsyncStorage,
-          prefix: PLAN_THREAD_STORAGE_PREFIX,
-          titleGenerator: { generateTitle: generateThreadTitle },
-        }),
+        isAuthenticated
+          ? createPlanRemoteThreadAdapter({ titleGenerator })
+          : createLocalStorageAdapter({
+              storage: browserAsyncStorage,
+              prefix: PLAN_THREAD_STORAGE_PREFIX,
+              titleGenerator,
+            }),
       ),
-    [],
+    [isAuthenticated, titleGenerator],
   );
 
   const runtime = useRemoteThreadListRuntime({
@@ -412,8 +430,19 @@ export function PlanRuntimeProvider({ children }: { children: ReactNode }) {
     adapter: threadListAdapter,
   });
 
+  const storageKey = authReady ? (isAuthenticated ? "remote" : "local") : "pending";
+
+  if (!authReady) {
+    return (
+      <div className="flex min-h-0 flex-1 items-center justify-center">
+        <StreamingDots />
+      </div>
+    );
+  }
+
   return (
-    <AssistantRuntimeProvider runtime={runtime}>
+    <AssistantRuntimeProvider key={storageKey} runtime={runtime}>
+      {isAuthenticated ? <PlanCloudThreadSync /> : null}
       {children}
     </AssistantRuntimeProvider>
   );

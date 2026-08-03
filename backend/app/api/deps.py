@@ -12,6 +12,7 @@ from backend.app.services.auth_service import AuthService
 from backend.app.services.oauth_service import OAuthService
 from backend.app.services.password_cipher_service import PasswordCipherService
 from backend.app.services.plan_chat_service import PlanChatService
+from backend.app.services.plan_chat_thread_service import PlanChatThreadService
 from backend.app.services.plan_service import PlanService
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
@@ -37,6 +38,12 @@ def get_plan_chat_service() -> PlanChatService:
 
 def get_plan_service(db: Annotated[Session, Depends(get_db)]) -> PlanService:
     return PlanService(db)
+
+
+def get_plan_chat_thread_service(
+    db: Annotated[Session, Depends(get_db)],
+) -> PlanChatThreadService:
+    return PlanChatThreadService(db)
 
 
 def get_current_token(

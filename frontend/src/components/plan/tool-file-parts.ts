@@ -7,7 +7,7 @@ import {
   mimeForPath,
   parseFileToolArgs,
 } from "@/components/plan/artifact-utils";
-import { planService } from "@/service/plan";
+import { toWorkspaceFileDataRef } from "@/lib/plan/sanitize-history-for-cloud";
 
 type ToolExportResult = {
   ok?: boolean;
@@ -56,15 +56,11 @@ export async function filePartFromToolResult(
   if (!path) return null;
   if (!isPdfPath(path) && !isMarkdownPath(path)) return null;
 
-  try {
-    const file = await planService.fetchWorkspaceFile(path);
-    return {
-      type: "file",
-      filename: basename(path),
-      mimeType: file.mimeType || mimeForPath(path),
-      data: file.data,
-    };
-  } catch {
-    return null;
-  }
+  // Store a workspace ref — all clients resolve bytes via /plan/workspace/file.
+  return {
+    type: "file",
+    filename: basename(path),
+    mimeType: mimeForPath(path),
+    data: toWorkspaceFileDataRef(path),
+  };
 }

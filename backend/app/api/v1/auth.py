@@ -1,7 +1,7 @@
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, status
-from fastapi.responses import RedirectResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from backend.app.api.deps import (
     get_auth_service,
@@ -51,6 +51,90 @@ def clear_auth_cookie(response: Response) -> None:
         samesite="lax",
         path="/",
     )
+
+
+def _is_desktop_deep_link(url: str) -> bool:
+    protocol = get_settings().desktop_oauth_redirect_uri.split("://", 1)[0]
+    return url.startswith(f"{protocol}://")
+
+
+def _desktop_oauth_bridge_html(deep_link: str) -> str:
+    """Browsers often ignore bare 307 redirects to custom protocols; open via HTML."""
+    from urllib.parse import parse_qs, urlparse
+
+    parsed = urlparse(deep_link)
+    query = parse_qs(parsed.query)
+    error_param = query.get("error")
+    error = error_param[0] if error_param else None
+    safe = (
+        deep_link.replace("\\", "\\\\")
+        .replace("'", "\\'")
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace('"', "&quot;")
+    )
+    if error:
+        title = "Sign-in failed"
+        body = "Authorization did not complete. You can close this tab and try again in the app."
+        button = "Back to Cloud Travel Guide"
+    else:
+        title = "Sign-in complete"
+        body = "Returning you to the Cloud Travel Guide desktop app…"
+        button = "Open Cloud Travel Guide"
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{title}</title>
+  <style>
+    body {{
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      font-family: system-ui, sans-serif;
+      background: #0b1220;
+      color: #e8eefc;
+    }}
+    main {{
+      max-width: 28rem;
+      padding: 2rem;
+      text-align: center;
+    }}
+    a {{
+      display: inline-block;
+      margin-top: 1rem;
+      padding: 0.75rem 1.25rem;
+      border-radius: 0.5rem;
+      background: #3b82f6;
+      color: white;
+      text-decoration: none;
+      font: inherit;
+    }}
+    p {{ opacity: 0.85; line-height: 1.5; }}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>{title}</h1>
+    <p>{body}</p>
+    <p>If the app does not open automatically, click the button below.</p>
+    <p><a id="open-app" href="{safe}">{button}</a></p>
+  </main>
+  <script>
+    (function () {{
+      var link = '{safe}';
+      try {{ window.location.replace(link); }} catch (e) {{}}
+      setTimeout(function () {{
+        try {{ window.location.href = link; }} catch (e) {{}}
+      }}, 400);
+    }})();
+  </script>
+</body>
+</html>
+"""
 
 
 @router.get("/password-key", response_model_by_alias=True)
@@ -111,16 +195,22 @@ def oauth_authorize(
     return RedirectResponse(url=url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
 
-@router.get("/oauth/{provider}/callback")
+@router.get("/oauth/{provider}/callback", response_model=None)
 async def oauth_callback(
     provider: OAuthProvider,
     code: Annotated[str, Query()],
     state: Annotated[str, Query()],
     oauth_service: Annotated[OAuthService, Depends(get_oauth_service)],
-) -> RedirectResponse:
+) -> Response:
     target, token = await oauth_service.handle_callback(provider=provider, code=code, state=state)
+
+    # Desktop: custom-protocol 307 is unreliable in Chromium — serve a bridge page.
+    if _is_desktop_deep_link(target):
+        return HTMLResponse(content=_desktop_oauth_bridge_html(target), status_code=200)
+
     response = RedirectResponse(url=target, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
     if token is not None:
+        # Optional same-origin cookie; web callback primarily uses the one-time code.
         set_auth_cookie(response, token)
     return response
 

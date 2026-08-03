@@ -2,6 +2,7 @@ import { app, BrowserWindow, shell } from "electron";
 import { APP_ID, APP_NAME } from "@/config/app";
 import {
   findDeepLinkArg,
+  focusMainWindow,
   handleDeepLinkUrl,
   initAuthBridge,
   registerDeepLinkProtocol,
@@ -12,6 +13,7 @@ import {
   registerAppScheme,
 } from "./app-protocol";
 import { getInitialBackgroundColor } from "./native-chrome";
+import { attachOAuthExternalNavigation, registerOAuthNavigationGuard } from "./oauth-navigation";
 import { DEV_SERVER_URL, getPreloadPath } from "./paths";
 import { getThemeState, initThemeBridge, pushThemeStateToWindow } from "./theme";
 import { initLocaleBridge, pushLocaleStateToWindow } from "./locale";
@@ -31,9 +33,12 @@ if (!gotSingleInstanceLock) {
   app.quit();
 } else {
   app.on("second-instance", (_event, argv) => {
+    console.log("[auth] second-instance argv:", argv);
     const deepLinkUrl = findDeepLinkArg(argv);
     if (deepLinkUrl) {
       handleDeepLinkUrl(deepLinkUrl);
+    } else {
+      focusMainWindow();
     }
   });
 }
@@ -71,6 +76,14 @@ function createWindow(): void {
     pushLocaleStateToWindow(mainWindow);
   });
 
+  // preload 加载失败会让 window.electronAPI 整体缺失（主题 / 语言 / OAuth 静默降级
+  // 成浏览器模式），Electron 默认不会中断启动，必须显式报出来。
+  mainWindow.webContents.on("preload-error", (_event, preloadPath, error) => {
+    console.error(`[electron] preload failed: ${preloadPath}`, error);
+  });
+
+  attachOAuthExternalNavigation(mainWindow.webContents);
+
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith("http://") || url.startsWith("https://")) {
       void shell.openExternal(url);
@@ -91,6 +104,7 @@ function createWindow(): void {
 if (gotSingleInstanceLock) {
   void app.whenReady().then(() => {
     registerDeepLinkProtocol();
+    registerOAuthNavigationGuard();
     initAuthBridge();
     initThemeBridge();
     initLocaleBridge();
@@ -98,6 +112,10 @@ if (gotSingleInstanceLock) {
       installAppProtocolHandler();
     }
     createWindow();
+    const coldStartDeepLink = findDeepLinkArg(process.argv);
+    if (coldStartDeepLink) {
+      handleDeepLinkUrl(coldStartDeepLink);
+    }
   });
 }
 

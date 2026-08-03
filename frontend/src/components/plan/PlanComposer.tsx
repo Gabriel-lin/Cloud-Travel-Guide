@@ -4,7 +4,7 @@ import {
   ComposerPrimitive,
   ThreadPrimitive,
 } from "@assistant-ui/react";
-import { ArrowUp, Paperclip } from "lucide-react";
+import { ArrowUp, Paperclip, Square } from "lucide-react";
 
 import { AgentSelector } from "@/components/plan/AgentSelector";
 import { useAppLocale } from "@/hooks/use-app-locale";
@@ -42,15 +42,28 @@ export function PlanComposer({ className }: { className?: string }) {
         <AgentSelector />
 
         <div className="flex items-center gap-2">
-          <ComposerPrimitive.Send asChild>
-            <button
-              type="button"
-              className="inline-flex size-9 cursor-pointer items-center justify-center rounded-full bg-ink-100 text-surface-950 transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-              aria-label={t("plan.send")}
-            >
-              <ArrowUp className="size-4" strokeWidth={2.25} />
-            </button>
-          </ComposerPrimitive.Send>
+          <ThreadPrimitive.If running>
+            <ComposerPrimitive.Cancel asChild>
+              <button
+                type="button"
+                className="inline-flex size-9 cursor-pointer items-center justify-center rounded-full bg-ink-100 text-surface-950 transition-opacity hover:opacity-90"
+                aria-label={t("plan.stop")}
+              >
+                <Square className="size-3.5 fill-current" strokeWidth={0} />
+              </button>
+            </ComposerPrimitive.Cancel>
+          </ThreadPrimitive.If>
+          <ThreadPrimitive.If running={false}>
+            <ComposerPrimitive.Send asChild>
+              <button
+                type="button"
+                className="inline-flex size-9 cursor-pointer items-center justify-center rounded-full bg-ink-100 text-surface-950 transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                aria-label={t("plan.send")}
+              >
+                <ArrowUp className="size-4" strokeWidth={2.25} />
+              </button>
+            </ComposerPrimitive.Send>
+          </ThreadPrimitive.If>
         </div>
       </div>
     </ComposerPrimitive.Root>

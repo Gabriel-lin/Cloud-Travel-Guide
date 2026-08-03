@@ -196,7 +196,7 @@ Cloud-Travel-Guide/
 ```text
 身份与账户 ── auth, OAuth, password cipher
 行程数据   ── plans CRUD, travel_plans ORM
-对话规划   ── plan/chat SSE, plan_chat_service, agents
+对话规划   ── plan/chat SSE, plan_chat_service, plan/threads 云端同步, agents
 文档产出   ── markdown_render, document_export, PDF 工具
 地理与旅行 ── geocode, budget, pace, itinerary_validate, web_search
 探索体验   ── routes UI, region-engine (DEM/OSM), Cesium/Three
@@ -209,7 +209,7 @@ Cloud-Travel-Guide/
 |----|------|------|
 | 系统 | `/api/v1/health` | 健康检查 |
 | 认证 | `/api/v1/auth/*` | 注册登录、OAuth、me |
-| 规划 | `/api/v1/plan/*` | agents 目录、chat SSE |
+| 规划 | `/api/v1/plan/*` | agents 目录、chat SSE、**threads 对话同步** |
 | 行程 | `/api/v1/plans/*` | 行程 CRUD |
 
 完整表见 [backend/README.md#api](../backend/README.md)。
@@ -262,5 +262,3 @@ Cloud-Travel-Guide/
 - **架构变更**：更新 §2 并同步子 README 的「架构」小节。
 - **版本发布**：`pyproject.toml`、`package.json` 与 §1.2「当前版本边界」保持一致说明。
 - **文档语言**：本文与根 README 中英混用处以保持与代码/域名为准；子 README 以中文为主。
-
-*最后更新：与仓库 feature/build 智能体与 Compose 栈对齐。*

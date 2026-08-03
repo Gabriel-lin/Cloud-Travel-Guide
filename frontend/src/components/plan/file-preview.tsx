@@ -11,6 +11,8 @@ import {
   mimeForPath,
 } from "@/components/plan/artifact-utils";
 import { StandaloneMarkdown } from "@/components/plan/markdown-text";
+import { WorkspaceFilePreview } from "@/components/plan/workspace-file-preview";
+import { parseWorkspaceFileDataRef } from "@/lib/plan/sanitize-history-for-cloud";
 import { useAppLocale } from "@/hooks/use-app-locale";
 
 export { ArtifactPreview } from "@/components/plan/artifact-preview";
@@ -22,6 +24,25 @@ export function FilePart() {
   const filename = basename(part.filename ?? "file");
   const mime = part.mimeType || mimeForPath(filename);
   const headerTitle = t("plan.fileQuickView");
+
+  const workspacePath = parseWorkspaceFileDataRef(part.data);
+  if (workspacePath) {
+    return (
+      <WorkspaceFilePreview
+        path={workspacePath}
+        title={headerTitle}
+        defaultOpen
+      />
+    );
+  }
+
+  if (!part.data) {
+    return (
+      <p className="my-2 text-xs text-ink-500">
+        {t("plan.fileUnavailable")}: {filename}
+      </p>
+    );
+  }
 
   if (isMarkdownPath(filename) || mime.includes("markdown")) {
     let md = part.data;
@@ -136,13 +157,6 @@ export function FileToolArtifact({
   }
 
   return (
-    <ArtifactPreview
-      title={basename(filePath)}
-      downloadName={filePath}
-      kind="binary"
-      content=""
-      encoding="utf8"
-      defaultOpen={false}
-    />
+    <WorkspaceFilePreview path={filePath} title={basename(filePath)} />
   );
 }

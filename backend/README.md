@@ -156,6 +156,7 @@ python scripts/stack.py up --prod -d
 | GET/POST | `/api/v1/auth/*` | 密码信封登录注册、OAuth、me |
 | GET | `/api/v1/plan/agents` | 智能体与模型目录 |
 | POST | `/api/v1/plan/chat` | 规划对话 **SSE**（需登录） |
+| CRUD | `/api/v1/plan/threads` | 规划对话线程与历史同步（需登录） |
 | CRUD | `/api/v1/plans` | 行程 |
 
 ---

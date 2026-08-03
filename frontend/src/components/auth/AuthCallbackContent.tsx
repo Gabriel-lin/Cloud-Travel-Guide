@@ -14,6 +14,10 @@ function parseProvider(value: string | null): OAuthProvider | null {
   return null;
 }
 
+/**
+ * Web OAuth lands here in the same tab after provider → backend redirect.
+ * Prefer one-time login code (cross-origin safe); keep cookie / token fallbacks.
+ */
 export function AuthCallbackContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -32,15 +36,33 @@ export function AuthCallbackContent() {
         return;
       }
 
+      const returnTo = searchParams.get("returnTo") ?? "/profile";
+      const code = searchParams.get("code");
+      const provider = parseProvider(searchParams.get("provider"));
+      const oauthSuccess = searchParams.get("oauth") === "success";
       const accessToken = searchParams.get("access_token");
       const tokenType = searchParams.get("token_type") ?? "bearer";
       const expiresIn = searchParams.get("expires_in");
-      const oauthSuccess = searchParams.get("oauth") === "success";
 
+      // Backend one-time login code (web client_type) — same-tab completion.
+      if (code && !provider) {
+        try {
+          const session = await authService.exchangeDesktopOAuthCode(code);
+          await establishSession(session);
+          router.replace(returnTo);
+          return;
+        } catch {
+          toast.error(t("auth.callbackFailed"));
+          router.replace("/login");
+          return;
+        }
+      }
+
+      // Legacy same-origin cookie session.
       if (oauthSuccess) {
         try {
           await establishCookieSession();
-          router.replace(searchParams.get("returnTo") ?? "/profile");
+          router.replace(returnTo);
           return;
         } catch {
           toast.error(t("auth.callbackFailed"));
@@ -58,7 +80,7 @@ export function AuthCallbackContent() {
               expires_in: expiresIn ? Number(expiresIn) : undefined,
             }),
           );
-          router.replace(searchParams.get("returnTo") ?? "/profile");
+          router.replace(returnTo);
           return;
         } catch {
           toast.error(t("auth.callbackFailed"));
@@ -67,9 +89,7 @@ export function AuthCallbackContent() {
         }
       }
 
-      const code = searchParams.get("code");
-      const provider = parseProvider(searchParams.get("provider"));
-
+      // Legacy: SPA exchanges provider code directly.
       if (code && provider) {
         const redirectUri = `${window.location.origin}/auth/callback`;
 
@@ -80,7 +100,7 @@ export function AuthCallbackContent() {
             redirectUri,
           });
           await establishSession(session);
-          router.replace(searchParams.get("returnTo") ?? "/profile");
+          router.replace(returnTo);
           return;
         } catch {
           toast.error(t("auth.callbackFailed"));
