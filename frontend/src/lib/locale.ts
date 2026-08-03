@@ -13,8 +13,8 @@ export function isAppLocale(value: string): value is AppLocale {
 export const DEFAULT_APP_LOCALE: AppLocale = "zh-CN";
 
 export const LOCALE_IPC = {
-  getState: "locale:getState",
-  getStateSync: "locale:getStateSync",
+  /** 同步通道：理由同 THEME_IPC.getStateSync */
+  getStateSync: "locale:getState-sync",
   setLocale: "locale:setLocale",
   stateChanged: "locale:state-changed",
 } as const;

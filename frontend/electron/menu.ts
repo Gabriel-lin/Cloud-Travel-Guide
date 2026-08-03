@@ -1,4 +1,4 @@
-import { Menu, type MenuItemConstructorOptions } from "electron";
+import { Menu, app, type MenuItemConstructorOptions } from "electron";
 
 import type { ThemePreference, ThemeState } from "../src/lib/theme";
 
@@ -60,12 +60,17 @@ function buildFileMenu(options: MenuOptions): MenuItemConstructorOptions {
 }
 
 function buildViewMenu(): MenuItemConstructorOptions {
+  const showDevTools =
+    !app.isPackaged && process.env.NODE_ENV !== "production";
+
   return {
     label: "View",
     submenu: [
       { label: "Reload", role: "reload" },
       { label: "Force Reload", role: "forceReload" },
-      { label: "Toggle Developer Tools", role: "toggleDevTools" },
+      ...(showDevTools
+        ? [{ label: "Toggle Developer Tools", role: "toggleDevTools" as const }]
+        : []),
       { type: "separator" },
       { label: "Actual Size", role: "resetZoom" },
       { label: "Zoom In", role: "zoomIn" },

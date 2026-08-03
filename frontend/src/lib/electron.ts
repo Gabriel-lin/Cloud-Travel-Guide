@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 
 import type {
+  DesktopOAuthProvider,
   ElectronAuthAPI,
   ElectronLocaleAPI,
   ElectronThemeAPI,
@@ -11,6 +12,7 @@ import type { ThemePreference, ThemeState } from "@/lib/theme";
 export type ElectronAPI = {
   platform: NodeJS.Platform;
   isElectron: true;
+  clientKind: "desktop";
   versions: {
     node: string;
     chrome: string;
@@ -27,15 +29,26 @@ declare global {
   }
 }
 
+export type { DesktopOAuthProvider };
+
 export function isElectronRuntime(): boolean {
   return typeof window !== "undefined" && window.electronAPI?.isElectron === true;
 }
 
+/**
+ * True only inside our packaged/dev Electron shell (preload bridge present).
+ * Do NOT use navigator.userAgent — Cursor / VS Code also contain "Electron" and
+ * would incorrectly force desktop OAuth (system browser + custom protocol).
+ */
+export function isDesktopClient(): boolean {
+  if (typeof window === "undefined") return false;
+  if (window.electronAPI?.clientKind === "desktop") return true;
+  return window.electronAPI?.isElectron === true;
+}
+
 export function getElectronAPI(): ElectronAPI | null {
-  if (!isElectronRuntime() || !window.electronAPI) {
-    return null;
-  }
-  return window.electronAPI;
+  if (typeof window === "undefined") return null;
+  return window.electronAPI ?? null;
 }
 
 export function getElectronThemeAPI(): ElectronThemeAPI | null {
@@ -63,7 +76,7 @@ const SSR_SNAPSHOT: ElectronRuntimeSnapshot = {
 export function getElectronRuntimeSnapshot(): ElectronRuntimeSnapshot {
   return {
     mounted: true,
-    inDesktop: isElectronRuntime(),
+    inDesktop: isDesktopClient(),
     api: getElectronAPI(),
   };
 }

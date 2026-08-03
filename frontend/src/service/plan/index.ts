@@ -9,5 +9,11 @@ export type {
   PlanItem,
   PlanModel,
   PlanSseEvent,
+  PlanThreadHistoryRepo,
+  PlanThreadInitializeResponse,
+  PlanThreadListResponse,
+  PlanThreadMetadata,
+  PlanThreadStatus,
   UpdatePlanPayload,
+  UpdatePlanThreadPayload,
 } from "./types";

@@ -218,7 +218,7 @@ export function LoginPageContent({ mode = "login" }: LoginPageContentProps) {
             <Button
               type="submit"
               className={cn(
-                "h-10 w-full cursor-pointer bg-brand-600 text-white hover:bg-brand-500",
+                "h-10 w-full cursor-pointer bg-brand-600 text-ink-50 hover:bg-brand-500",
               )}
               disabled={busy}
             >

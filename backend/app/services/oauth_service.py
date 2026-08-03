@@ -115,11 +115,14 @@ class OAuthService:
             if state_payload.client_type == "desktop":
                 return self._build_error_redirect(redirect_uri, "oauth_failed"), None
             raise
+        # Both web and desktop use a short-lived one-time login code.
+        # Web cannot rely on HttpOnly cookies across split origins
+        # (e.g. localhost:3000 → 127.0.0.1:8000, or travel.example.com → api.example.com).
+        login_code = self._create_desktop_login_code(user)
         if state_payload.client_type == "desktop":
-            login_code = self._create_desktop_login_code(user)
             return self._build_desktop_redirect(redirect_uri, login_code), None
 
-        return self._build_frontend_redirect(redirect_uri), token
+        return self._build_frontend_redirect(redirect_uri, login_code), token
 
     def exchange_desktop_code(self, code: str) -> TokenResponse:
         login_code = self._consume_desktop_login_code(code)
@@ -349,8 +352,8 @@ class OAuthService:
         return value.astimezone(UTC)
 
     @staticmethod
-    def _build_frontend_redirect(redirect_uri: str) -> str:
-        query = urlencode({"oauth": "success"})
+    def _build_frontend_redirect(redirect_uri: str, code: str) -> str:
+        query = urlencode({"code": code})
         separator = "&" if "?" in redirect_uri else "?"
         return f"{redirect_uri}{separator}{query}"
 

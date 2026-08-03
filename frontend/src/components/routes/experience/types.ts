@@ -23,6 +23,8 @@ export type RouteStop = {
   labelKey: string;
   /** 真实地理坐标，用于 2D 俯视图与后续场景定位。 */
   coord: { lat: number; lon: number };
+  /** 站点风景图；推荐卡片使用路线起点（stops[0]）的配图。 */
+  coverImage?: string;
 };
 
 /** 单条推荐路线的体验配置（驱动统一的子页面组件）。 */

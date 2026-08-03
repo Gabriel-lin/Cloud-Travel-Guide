@@ -15,8 +15,7 @@ function createAppEnvDefine(mode: string): Record<string, string> {
 
 /**
  * 将 electron/*.ts 均作为入口，输出同名 .js（新增文件无需改配置）。
- * preload.ts 除外：sandbox 化的 preload 不能 require 相对路径的共享 chunk，
- * 由 vite.preload.config.ts 单独打成自包含单文件。
+ * preload.ts 除外：见 {@link buildPreloadPlugin}。
  */
 function getElectronRollupInput(): Record<string, string> {
   return Object.fromEntries(
@@ -37,9 +36,12 @@ function getElectronRollupInput(): Record<string, string> {
 
 /**
  * 主进程构建完成后单独打包 preload。
- * preload 运行在 sandbox 中只能 require("electron")，不能加载相对路径的
- * 共享 chunk，因此不能作为多入口之一（rollup 会抽公共 chunk），
- * 必须嵌套一次单入口构建，打成自包含单文件。
+ *
+ * 窗口使用 `sandbox: true`，Electron 会把 preload 当作**无模块上下文的普通脚本**
+ * 执行：ESM 产物会以 "Cannot use import statement outside a module" 整体加载失败，
+ * 导致 window.electronAPI 缺失（主题 / 语言 / OAuth 桥全部静默降级）；相对路径的
+ * 共享 chunk 同样无法 require。因此必须嵌套一次单入口构建，打成自包含的 CJS 单文件。
+ * @see https://www.electronjs.org/docs/latest/tutorial/esm#preload-scripts
  */
 function buildPreloadPlugin(appEnvDefine: Record<string, string>): Plugin {
   return {
@@ -72,7 +74,7 @@ function buildPreloadPlugin(appEnvDefine: Record<string, string>): Plugin {
             input: path.join(electronDir, "preload.ts"),
             output: {
               format: "cjs",
-              entryFileNames: "preload.js",
+              entryFileNames: "preload.cjs",
               inlineDynamicImports: true,
             },
             external: ["electron"],

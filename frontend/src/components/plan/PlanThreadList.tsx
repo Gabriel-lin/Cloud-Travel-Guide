@@ -234,12 +234,13 @@ function PlanThreadListBody() {
   const threadItems = useAuiState((s) => s.threads.threadItems);
 
   const groups = useMemo(() => {
+    const ids = threadIds ?? [];
     const raw = threadItems as
       | readonly { id: string; custom?: Record<string, unknown> }[]
       | Record<string, { id: string; custom?: Record<string, unknown> }>;
     const list = Array.isArray(raw) ? raw : Object.values(raw ?? {});
     const byId = new Map(list.map((item) => [item.id, item]));
-    const ordered = threadIds
+    const ordered = ids
       .map((id) => byId.get(id))
       .filter((item): item is NonNullable<typeof item> => Boolean(item));
 

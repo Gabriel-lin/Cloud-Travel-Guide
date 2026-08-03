@@ -10,6 +10,8 @@ export { get, post, put, patch, del, httpClient as requestClient } from "./reque
 export {
   clearAccessToken,
   getAccessToken,
+  persistAccessToken,
+  refreshAccessTokenFromBridge,
   setAccessToken,
 } from "./token";
 export type {

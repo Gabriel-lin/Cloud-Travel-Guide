@@ -151,15 +151,13 @@ export function initThemeBridge(): void {
     }
   });
 
-  ipcMain.removeHandler(THEME_IPC.getState);
   ipcMain.removeHandler(THEME_IPC.setPreference);
   ipcMain.removeAllListeners(THEME_IPC.getStateSync);
 
+  // 同步应答：preload 在 document-start 阻塞读取，保证首屏就是正确主题。
   ipcMain.on(THEME_IPC.getStateSync, (event) => {
     event.returnValue = getThemeState();
   });
-
-  ipcMain.handle(THEME_IPC.getState, () => getThemeState());
 
   ipcMain.handle(THEME_IPC.setPreference, (_event, preference: unknown) => {
     if (typeof preference !== "string" || !isThemePreference(preference)) {

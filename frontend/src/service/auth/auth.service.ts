@@ -3,8 +3,8 @@ import {
   API_V1_PREFIX,
   clearAccessToken,
   get,
+  persistAccessToken,
   post,
-  setAccessToken,
 } from "@/service/base";
 import type {
   AuthUser,
@@ -59,7 +59,7 @@ export const authService = {
       },
     );
 
-    setAccessToken(result.access_token);
+    await persistAccessToken(result.access_token);
     return toAuthSession(result);
   },
 
@@ -104,7 +104,7 @@ export const authService = {
     return url.toString();
   },
 
-  /** POST /api/v1/auth/oauth/desktop/exchange — Electron 一次性 code 换 token */
+  /** POST /api/v1/auth/oauth/desktop/exchange — one-time login code → token (web + desktop) */
   async exchangeDesktopOAuthCode(code: string) {
     const result = await post<TokenResponse>(
       `${AUTH_PREFIX}/oauth/desktop/exchange`,
@@ -112,7 +112,7 @@ export const authService = {
       { skipAuth: true },
     );
 
-    setAccessToken(result.access_token);
+    await persistAccessToken(result.access_token);
     return toAuthSession(result);
   },
 
@@ -128,7 +128,7 @@ export const authService = {
       { skipAuth: true },
     );
 
-    setAccessToken(result.access_token);
+    await persistAccessToken(result.access_token);
     return toAuthSession(result);
   },
 

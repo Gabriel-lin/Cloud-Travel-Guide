@@ -14,7 +14,12 @@ export const ROUTE_EXPERIENCES: readonly RouteExperienceConfig[] = [
     backgroundImage: "/images/routes-scenery.jpg",
     miniMapImage: "/images/minimap/silk-road.png",
     stops: [
-      { id: "xian", labelKey: "routes.silkRoad.stops.xian", coord: { lat: 34.34, lon: 108.94 } },
+      {
+        id: "xian",
+        labelKey: "routes.silkRoad.stops.xian",
+        coord: { lat: 34.34, lon: 108.94 },
+        coverImage: "/images/routes/stops/xian.jpg",
+      },
       { id: "lanzhou", labelKey: "routes.silkRoad.stops.lanzhou", coord: { lat: 36.06, lon: 103.83 } },
       { id: "dunhuang", labelKey: "routes.silkRoad.stops.dunhuang", coord: { lat: 40.14, lon: 94.66 } },
       { id: "turpan", labelKey: "routes.silkRoad.stops.turpan", coord: { lat: 42.95, lon: 89.18 } },
@@ -28,7 +33,12 @@ export const ROUTE_EXPERIENCES: readonly RouteExperienceConfig[] = [
     backgroundImage: "/images/routes-scenery.jpg",
     miniMapImage: "/images/minimap/sichuan-tibet.png",
     stops: [
-      { id: "chengdu", labelKey: "routes.sichuanTibet.stops.chengdu", coord: { lat: 30.57, lon: 104.07 } },
+      {
+        id: "chengdu",
+        labelKey: "routes.sichuanTibet.stops.chengdu",
+        coord: { lat: 30.57, lon: 104.07 },
+        coverImage: "/images/routes/stops/chengdu.jpg",
+      },
       { id: "kangding", labelKey: "routes.sichuanTibet.stops.kangding", coord: { lat: 30.05, lon: 101.96 } },
       { id: "litang", labelKey: "routes.sichuanTibet.stops.litang", coord: { lat: 30.0, lon: 100.27 } },
       { id: "nyingchi", labelKey: "routes.sichuanTibet.stops.nyingchi", coord: { lat: 29.65, lon: 94.36 } },
@@ -42,7 +52,12 @@ export const ROUTE_EXPERIENCES: readonly RouteExperienceConfig[] = [
     backgroundImage: "/images/routes-scenery.jpg",
     miniMapImage: "/images/minimap/mediterranean.png",
     stops: [
-      { id: "barcelona", labelKey: "routes.mediterranean.stops.barcelona", coord: { lat: 41.39, lon: 2.17 } },
+      {
+        id: "barcelona",
+        labelKey: "routes.mediterranean.stops.barcelona",
+        coord: { lat: 41.39, lon: 2.17 },
+        coverImage: "/images/routes/stops/barcelona.jpg",
+      },
       { id: "marseille", labelKey: "routes.mediterranean.stops.marseille", coord: { lat: 43.3, lon: 5.37 } },
       { id: "rome", labelKey: "routes.mediterranean.stops.rome", coord: { lat: 41.9, lon: 12.5 } },
       { id: "athens", labelKey: "routes.mediterranean.stops.athens", coord: { lat: 37.98, lon: 23.73 } },
@@ -61,4 +76,17 @@ export function getRouteConfig(
   slug: string,
 ): RouteExperienceConfig | undefined {
   return ROUTE_EXPERIENCES.find((route) => route.slug === slug);
+}
+
+/** 推荐卡片封面：路线起点站点风景图。 */
+export function getRouteCardCoverImage(
+  route: RouteExperienceConfig,
+): string {
+  const origin = route.stops[0];
+  if (!origin) {
+    return route.backgroundImage;
+  }
+  return (
+    origin.coverImage ?? `/images/routes/stops/${origin.id}.jpg`
+  );
 }

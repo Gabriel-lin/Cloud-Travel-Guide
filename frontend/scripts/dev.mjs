@@ -21,7 +21,7 @@ const { result } = concurrently(
     { command: "npm run dev:next", name: "next", prefixColor: "cyan" },
     { command: "npm run dev:electron", name: "vite", prefixColor: "magenta" },
     {
-      command: `wait-on ${devServerWaitTarget} && electron .`,
+      command: "node scripts/dev-electron.mjs",
       name: "app",
       prefixColor: "green",
     },

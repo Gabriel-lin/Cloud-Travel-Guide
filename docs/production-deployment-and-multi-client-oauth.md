@@ -155,15 +155,17 @@ Provider
   -> redirects to backend callback
 Backend callback
   -> exchanges provider code
-  -> creates app token
-  -> sets HttpOnly Secure SameSite=Lax cookie
-  -> redirects to web /auth/callback?oauth=success
+  -> creates app user + short-lived one-time login code
+  -> (optional) sets HttpOnly cookie for same-origin setups
+  -> redirects to web /auth/callback?code=<one-time-login-code>
 Web callback
-  -> calls /me with credentials
-  -> restores session
+  -> POST /api/v1/auth/oauth/desktop/exchange
+  -> stores bearer token (localStorage)
+  -> calls /me
+  -> navigates into the app
 ```
 
-The access token is never placed in the browser URL.
+The provider access token is never placed in the browser URL. The one-time login code is single-use and short-lived — required because the web app and API are typically on different origins, so cross-site HttpOnly cookies are not reliable.
 
 ### Electron OAuth Flow
 
@@ -179,17 +181,12 @@ Provider
 Backend callback
   -> exchanges provider code
   -> creates short-lived one-time desktop login code
-  -> redirects to cloud-travel-guide://auth/callback?code=...
+  -> returns an HTML bridge page that opens cloud-travel-guide://auth/callback?code=...
 Electron main process
   -> receives deep link
-  -> forwards callback to renderer through preload IPC
-Electron renderer
-  -> POST /api/v1/auth/oauth/desktop/exchange with one-time code
-Backend
-  -> consumes one-time code
-  -> returns app token
-Electron
-  -> stores token through main process secure storage
+  -> exchanges code for app token
+  -> stores token in OS-backed secure storage
+  -> injects session into renderer and navigates to /profile
 ```
 
 The one-time code is:

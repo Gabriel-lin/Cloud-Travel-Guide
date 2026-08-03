@@ -79,7 +79,7 @@ export function ProfileContent() {
             <Button
               nativeButton={false}
               render={<Link href="/login?returnTo=/profile" />}
-              className="cursor-pointer bg-brand-600 text-white hover:bg-brand-500"
+              className="cursor-pointer bg-brand-600 text-ink-50 hover:bg-brand-500"
             >
               {t("auth.submit")}
             </Button>
