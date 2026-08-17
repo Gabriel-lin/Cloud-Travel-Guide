@@ -13,16 +13,23 @@ import {
   cameraPosition,
   clamp,
   cos,
+  float,
   instancedBufferAttribute,
   mix,
   positionLocal,
   sin,
   smoothstep,
   uv,
+  vec2,
   vec3,
 } from "three/tsl";
 import type { NV4 } from "../gpu/tsl-types";
 import type { EnvState } from "../render/env";
+import {
+  sampleFloatBilinear,
+  sampleWaterLevel,
+  type WorldTextures,
+} from "../render/fields";
 import { makeRng } from "../veg/treeBuilder";
 
 const FIREFLY_COUNT = 1400;
@@ -167,5 +174,70 @@ export function createAmbientParticles(env: EnvState): InstancedMesh {
   const mesh = new InstancedMesh(billboardQuad(instA, instB), mat, AMBIENT_COUNT);
   mesh.frustumCulled = false;
   mesh.renderOrder = 7;
+  return mesh;
+}
+
+/** 水下悬浮碎屑(marine snow):相机周围环绕,只在水面以下、河床以上可见 */
+export function createMarineSnow(tex: WorldTextures, env: EnvState): InstancedMesh {
+  const COUNT = 720;
+  const RANGE = 8;
+  const instA = new InstancedBufferAttribute(new Float32Array(COUNT * 4), 4);
+  const instB = new InstancedBufferAttribute(new Float32Array(COUNT * 4), 4);
+  const rng = makeRng(20260817);
+  for (let i = 0; i < COUNT; i++) {
+    instA.array[i * 4] = (rng() - 0.5) * RANGE * 2;
+    instA.array[i * 4 + 1] = (rng() - 0.5) * RANGE * 2;
+    instA.array[i * 4 + 2] = (rng() - 0.5) * RANGE * 2;
+    instA.array[i * 4 + 3] = 0.008 + rng() * 0.018;
+    instB.array[i * 4] = rng();
+    instB.array[i * 4 + 1] = 0.04 + rng() * 0.12;
+    instB.array[i * 4 + 2] = rng();
+    instB.array[i * 4 + 3] = rng();
+  }
+
+  const mat = new MeshBasicNodeMaterial();
+  mat.transparent = true;
+  mat.depthWrite = false;
+  mat.fog = true;
+
+  const a = instancedBufferAttribute(instA) as unknown as NV4;
+  const b = instancedBufferAttribute(instB) as unknown as NV4;
+  const t = env.time;
+  const raw = vec3(
+    a.x.add(sin(t.mul(0.11).add(b.x.mul(17))).mul(0.35)).add(t.mul(b.y).mul(0.15)),
+    a.y.add(t.mul(b.y.negate())).add(sin(t.mul(0.19).add(b.z.mul(9))).mul(0.2)),
+    a.z.add(cos(t.mul(0.13).add(b.w.mul(13))).mul(0.35)).add(t.mul(b.y).mul(0.08)),
+  ).toVar();
+  const wrap = (v: typeof raw.x, range: number) => v.div(range).fract().mul(range);
+  const rel = vec3(
+    wrap(raw.x.add(RANGE).sub(cameraPosition.x), RANGE * 2).sub(RANGE),
+    wrap(raw.y.add(RANGE).sub(cameraPosition.y), RANGE * 2).sub(RANGE),
+    wrap(raw.z.add(RANGE).sub(cameraPosition.z), RANGE * 2).sub(RANGE),
+  );
+  const base = cameraPosition.add(rel).toVar();
+  const xz = vec2(base.x, base.z);
+  const bed = sampleFloatBilinear(tex.heightTex, xz, tex.res, tex.size);
+  const wl = sampleWaterLevel(tex.waterExtTex, xz, tex.res, tex.size);
+  const under = wl.valid
+    .mul(smoothstep(bed.add(0.04), bed.add(0.18), base.y))
+    .mul(smoothstep(wl.y.add(0.02), wl.y.sub(0.12), base.y));
+  const toCam = cameraPosition.sub(base);
+  const dist = rel.length();
+  const right = vec3(toCam.z.negate(), 0, toCam.x).normalize();
+  const up = vec3(0, 1, 0);
+  const sizeK = a.w.mul(under);
+  mat.positionNode = base
+    .add(right.mul(positionLocal.x.mul(sizeK)))
+    .add(up.mul(positionLocal.y.mul(sizeK)));
+
+  const d = uv().sub(0.5).length();
+  const soft = smoothstep(0.5, 0.12, d);
+  const distFade = smoothstep(RANGE, RANGE * 0.25, dist);
+  mat.colorNode = vec3(0.55, 0.58, 0.42);
+  mat.opacityNode = clamp(soft.mul(distFade).mul(under).mul(0.38), 0, 1);
+
+  const mesh = new InstancedMesh(billboardQuad(instA, instB), mat, COUNT);
+  mesh.frustumCulled = false;
+  mesh.renderOrder = 6;
   return mesh;
 }

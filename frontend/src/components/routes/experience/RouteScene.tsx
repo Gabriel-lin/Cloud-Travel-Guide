@@ -1,7 +1,7 @@
 "use client";
 
 import { PerformanceMonitor, Stats } from "@react-three/drei";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Canvas, events as createPointerEvents, useFrame, useThree } from "@react-three/fiber";
 import { AlertTriangle } from "lucide-react";
 import {
   Component,
@@ -36,11 +36,46 @@ export type RouteSceneProps = {
   onStateChange?: (patch: Partial<RouteToolbarState>) => void;
 };
 
+/**
+ * R3F Canvas 在 WebGPU 异步 init / HMR 卸载后仍可能把 null 传给 events.connect,
+ * 默认实现会直接 target.addEventListener → 整页 Uncaught TypeError。
+ */
+function createSafePointerEvents(
+  store: Parameters<typeof createPointerEvents>[0],
+) {
+  const manager = createPointerEvents(store);
+  const connect = manager.connect?.bind(manager);
+  manager.connect = (target) => {
+    if (!target) return;
+    connect?.(target);
+  };
+  return manager;
+}
+
 /** WebGPU 优先,初始化失败自动回退 WebGL2(三方案见 docs/regional-terrain-engine-plan.md) */
 async function createRenderer(props: unknown): Promise<WebGPURenderer> {
   const base = props as ConstructorParameters<typeof WebGPURenderer>[0];
+  const requiredLimits: Record<string, number> = {};
   try {
-    const renderer = new WebGPURenderer({ ...base, antialias: true });
+    const gpu = (
+      navigator as Navigator & {
+        gpu?: {
+          requestAdapter: () => Promise<{
+            limits: { maxStorageBuffersPerShaderStage: number };
+          } | null>;
+        };
+      }
+    ).gpu;
+    const adapter = await gpu?.requestAdapter();
+    const maxSb = adapter?.limits.maxStorageBuffersPerShaderStage ?? 0;
+    if (maxSb >= 12) {
+      requiredLimits.maxStorageBuffersPerShaderStage = Math.min(maxSb, 16);
+    }
+  } catch {
+    /* adapter 查询失败则走默认限额 */
+  }
+  try {
+    const renderer = new WebGPURenderer({ ...base, antialias: true, requiredLimits });
     await renderer.init();
     return renderer;
   } catch (err) {
@@ -88,7 +123,9 @@ function SceneContent({ params, onProgress, onRigMode }: SceneContentProps) {
   }, [onRigMode]);
 
   useEffect(() => {
-    const rig = new WalkFlyRig(camera as PerspectiveCamera, gl.domElement);
+    const dom = gl.domElement;
+    if (!dom) return;
+    const rig = new WalkFlyRig(camera as PerspectiveCamera, dom);
     rig.onModeChange = (mode) => rigModeCb.current(mode);
     rigRef.current = rig;
     return () => {
@@ -203,6 +240,7 @@ export function RouteScene({
         <Canvas
           // WebGPURenderer(异步 init)为 R3F v9 支持的 promise 工厂
           gl={createRenderer as never}
+          events={createSafePointerEvents}
           shadows
           dpr={[0.75, dprMax]}
           camera={{ fov: 62, near: 0.2, far: 30000, position: [140, 220, 300] }}

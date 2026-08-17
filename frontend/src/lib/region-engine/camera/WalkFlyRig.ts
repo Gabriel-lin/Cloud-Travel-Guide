@@ -38,9 +38,14 @@ const BOB_ROLL = 0.0032;
 const SPRINT_FOV_ADD = 6;
 const DIP_K = 150;
 const DIP_C = 18;
-// fly 软碰撞
+// fly 软碰撞(水下允许贴近河床)
 const FLY_GROUND_CLEAR = 1.4;
-const WADE_CLEAR = 0.45;
+const FLY_BED_CLEAR = 0.32;
+const WALK_DIVE_CLEAR = 0.18;
+// 水下:阻尼 + Space 上浮
+const WATER_DRAG = 3.0;
+const SWIM_UP_ACCEL = 14;
+const SWIM_UP_MAX = 2.8;
 // Chromium 在 ESC 解锁后有 ~1.25 s 冷却,期间的 requestPointerLock 会被拒绝
 const LOCK_COOLDOWN_MS = 1300;
 const LOCK_INTENT_MS = 3500;
@@ -196,7 +201,7 @@ export class WalkFlyRig {
       if (!this.groundProbe) return;
       this.basePos.copy(this.camera.position);
       const g = this.groundProbe(this.basePos.x, this.basePos.z);
-      this.basePos.y = Math.max(g.ground + EYE_HEIGHT, g.water + WADE_CLEAR);
+      this.basePos.y = g.ground + EYE_HEIGHT;
       this.velY = 0;
       this.vel.set(0, 0, 0);
       this.grounded = true;
@@ -266,11 +271,13 @@ export class WalkFlyRig {
     this.vel.lerp(MOVE.multiplyScalar(target), damp);
     this.camera.position.addScaledVector(this.vel, dt);
 
-    // 软地面碰撞 + 水面之上(无水下渲染)
+    // 有水的格子允许降到河床附近,否则 1.4 m 离地间隙会把相机卡在浅溪水面之上
     if (this.groundProbe) {
       const c = this.camera.position;
       const g = this.groundProbe(c.x, c.z);
-      const floor = Math.max(g.ground + FLY_GROUND_CLEAR, g.water + WADE_CLEAR);
+      const wet = Number.isFinite(g.water) && g.water > g.ground + 0.05;
+      const clear = wet ? FLY_BED_CLEAR : FLY_GROUND_CLEAR;
+      const floor = g.ground + clear;
       if (c.y < floor) c.y = floor;
     }
     this.basePos.copy(this.camera.position);
@@ -310,9 +317,13 @@ export class WalkFlyRig {
     this.basePos.x += this.vel.x * dt;
     this.basePos.z += this.vel.z * dt;
 
+    const g = probe(this.basePos.x, this.basePos.z);
+    const wet = Number.isFinite(g.water) && g.water > g.ground + 0.05;
+
     // ---- 垂直:重力、跳跃(按住或 150 ms 缓冲)、贴地 ----
     const jumpBuffered = this.jumpAt >= 0 && performance.now() - this.jumpAt < 150;
-    if (this.grounded && (this.keys.has("Space") || jumpBuffered)) {
+    // 水域内 Space 改为上浮,不跳出水面
+    if (!wet && this.grounded && (this.keys.has("Space") || jumpBuffered)) {
       this.velY = JUMP_V0;
       this.grounded = false;
       this.jumpAt = -1;
@@ -321,8 +332,13 @@ export class WalkFlyRig {
     this.basePos.y += (this.velY - GRAVITY * dt * 0.5) * dt;
     this.velY -= GRAVITY * dt;
 
-    const g = probe(this.basePos.x, this.basePos.z);
-    const eyeFloor = g.ground + EYE_HEIGHT;
+    // 浅溪/浅湖:眼睛降到水面以下;深水仍用 1.7 m 但夹在河床与水面之间
+    const eyeFloor = wet
+      ? Math.max(
+          g.ground + WALK_DIVE_CLEAR,
+          Math.min(g.ground + EYE_HEIGHT, g.water - 0.08),
+        )
+      : g.ground + EYE_HEIGHT;
     if (this.basePos.y <= eyeFloor) {
       if (!this.grounded && this.velY < -3) {
         this.dipV -= Math.min(Math.abs(this.velY) * 0.035, 0.2) * 9;
@@ -337,12 +353,13 @@ export class WalkFlyRig {
     } else if (this.basePos.y - eyeFloor > 0.02) {
       this.grounded = false;
     }
-    // 涉水:视点保持水面之上
-    const wadeFloor = g.water + WADE_CLEAR;
-    if (this.basePos.y < wadeFloor) {
-      this.basePos.y = wadeFloor;
-      if (this.velY < 0) this.velY = 0;
-      this.grounded = true;
+    // 水下:阻尼下沉 + Space 上浮(可以潜入河湖看河床/水草/鱼群)
+    if (this.basePos.y < g.water - 0.1) {
+      this.velY *= Math.exp(-dt * WATER_DRAG);
+      if (this.keys.has("Space")) {
+        this.velY = Math.min(this.velY + SWIM_UP_ACCEL * dt, SWIM_UP_MAX);
+        this.grounded = false;
+      }
     }
 
     // ---- 相机运动特效 ----

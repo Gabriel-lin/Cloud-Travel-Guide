@@ -36,9 +36,10 @@ import type { BootProgress, RegionParams, WorldFields } from "../types";
 import { createBuildings } from "./Buildings";
 import { createGrassRing } from "./GrassRing";
 import { createOuterApron } from "./OuterApron";
-import { createAmbientParticles, createFireflies } from "./Particles";
+import { createAmbientParticles, createFireflies, createMarineSnow } from "./Particles";
 import { TerrainTiles } from "./TerrainTiles";
 import { Vegetation } from "./Vegetation";
+import { createWaterFlora } from "./WaterFlora";
 import { createWaterSurface } from "./WaterSurface";
 
 export type ProgressFn = (p: BootProgress) => void;
@@ -121,6 +122,8 @@ export class RegionWorld {
     world.group.add(world.terrain.mesh);
     world.group.add(createWaterSurface(tex, env));
     world.group.add(createGrassRing(tex, env));
+    // 水生细节:岸边芦苇、荇菜浮叶/黄花、水下水草、河床沙石、深水鱼群
+    world.group.add(createWaterFlora(tex, env, fields));
 
     onProgress({ status: "building", value: 0.86, detail: "vegetation" });
     world.vegetation = new Vegetation(renderer, env, fields, scatter);
@@ -137,6 +140,7 @@ export class RegionWorld {
     world.fireflies = createFireflies(env, scatter.fireflySpots);
     world.group.add(world.fireflies);
     world.group.add(createAmbientParticles(env));
+    world.group.add(createMarineSnow(tex, env));
 
     world.sun = new DirectionalLight(0xffffff, 3.2);
     world.sun.castShadow = true;
@@ -190,11 +194,20 @@ export class RegionWorld {
     this.sun.intensity = this.env.sunIntensity();
     this.hemi.intensity = this.env.ambientIntensity();
 
-    // 雾色随昼夜
+    // 雾色随昼夜;相机潜入水下时切换为浑浊水色(能见度 ~20 m)
     const nightK = this.env.nightK.value as number;
-    const [r, g, b] = skyHorizonRgb(nightK);
-    this.fog.color.setRGB(r, g, b);
-    this.fog.density = 0.00016 + nightK * 0.00006;
+    const cam = camera.position;
+    const probe = this.groundProbe(cam.x, cam.z);
+    if (cam.y < probe.water - 0.05) {
+      const depth = Math.max(probe.water - cam.y, 0);
+      const dim = 1 - nightK * 0.8;
+      this.fog.color.setRGB(0.055 * dim, 0.14 * dim, 0.13 * dim);
+      this.fog.density = 0.028 + Math.min(depth * 0.003, 0.022);
+    } else {
+      const [r, g, b] = skyHorizonRgb(nightK);
+      this.fog.color.setRGB(r, g, b);
+      this.fog.density = 0.00016 + nightK * 0.00006;
+    }
 
     // 萤火虫只在夜间绘制
     this.fireflies.visible = nightK > 0.03;
