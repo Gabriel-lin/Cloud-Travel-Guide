@@ -33,6 +33,7 @@ import {
 import { createSkyDome, skyHorizonRgb } from "../render/skyAtmosphere";
 import { scatterWorld } from "../veg/scatter";
 import type { BootProgress, RegionParams, WorldFields } from "../types";
+import { createBirdFlocks } from "./BirdFlocks";
 import { createBuildings } from "./Buildings";
 import { createGrassRing } from "./GrassRing";
 import { createOuterApron } from "./OuterApron";
@@ -141,6 +142,12 @@ export class RegionWorld {
     world.group.add(world.fireflies);
     world.group.add(createAmbientParticles(env));
     world.group.add(createMarineSnow(tex, env));
+    // 空中鸟群:按经纬度/栖息地/风雪/昼夜选种;羽色图集与鱼相同(每种多种子)
+    try {
+      world.group.add(createBirdFlocks(tex, env, fields, params));
+    } catch (err) {
+      console.warn("[region-engine] bird flocks skipped", err);
+    }
 
     world.sun = new DirectionalLight(0xffffff, 3.2);
     world.sun.castShadow = true;
