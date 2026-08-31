@@ -13,11 +13,12 @@ import {
   useState,
 } from "react";
 import type { PerspectiveCamera } from "three";
-import { WebGPURenderer } from "three/webgpu";
+import { WebGPURenderer, type Renderer, type RenderPipeline } from "three/webgpu";
 
 import { useAppLocale } from "@/hooks/use-app-locale";
 import { WalkFlyRig } from "@/lib/region-engine/camera/WalkFlyRig";
 import { useRegionScene } from "@/lib/region-engine/hooks/useRegionScene";
+import { createRegionPostFX } from "@/lib/region-engine/render/postfx";
 import type {
   BootProgress,
   RegionParams,
@@ -75,12 +76,12 @@ async function createRenderer(props: unknown): Promise<WebGPURenderer> {
     /* adapter 查询失败则走默认限额 */
   }
   try {
-    const renderer = new WebGPURenderer({ ...base, antialias: true, requiredLimits });
+    const renderer = new WebGPURenderer({ ...base, antialias: false, requiredLimits });
     await renderer.init();
     return renderer;
   } catch (err) {
     console.warn("[region-engine] WebGPU unavailable, falling back to WebGL2", err);
-    const renderer = new WebGPURenderer({ ...base, antialias: true, forceWebGL: true });
+    const renderer = new WebGPURenderer({ ...base, antialias: false, forceWebGL: true });
     await renderer.init();
     return renderer;
   }
@@ -151,6 +152,12 @@ function SceneContent({ params, onProgress, onRigMode }: SceneContentProps) {
     rigRef.current?.setMode(params.mode);
   }, [params.mode, world]);
 
+  // 浏览器自动播放策略:首次指针/键盘手势解锁 AudioContext
+  useEffect(() => {
+    if (!world) return;
+    return world.sound.installUnlock(gl.domElement);
+  }, [world, gl]);
+
   useFrame((rootState, dt) => {
     rigRef.current?.update(dt);
     world?.update(rootState.camera as PerspectiveCamera, dt);
@@ -162,8 +169,40 @@ function SceneContent({ params, onProgress, onRigMode }: SceneContentProps) {
       <primitive object={world.group} />
       {/* 雾挂到 scene.fog(R3F 声明式 attach,昼夜色由 world.update 每帧驱动) */}
       <primitive object={world.fog} attach="fog" />
+      <RegionPostFX />
     </>
   );
+}
+
+/** 全屏 FXAA + 近景反锐化;priority>0 接管 R3F 默认 render */
+function RegionPostFX() {
+  const gl = useThree((s) => s.gl);
+  const scene = useThree((s) => s.scene);
+  const camera = useThree((s) => s.camera);
+  const pipeRef = useRef<RenderPipeline | null>(null);
+
+  useEffect(() => {
+    try {
+      const pipe = createRegionPostFX(gl as unknown as Renderer, scene, camera);
+      pipeRef.current = pipe;
+      return () => {
+        pipe.dispose();
+        pipeRef.current = null;
+      };
+    } catch (err) {
+      console.warn("[region-engine] postfx skipped", err);
+      pipeRef.current = null;
+      return undefined;
+    }
+  }, [gl, scene, camera]);
+
+  useFrame(() => {
+    const pipe = pipeRef.current;
+    if (pipe) pipe.render();
+    else gl.render(scene, camera);
+  }, 1);
+
+  return null;
 }
 
 const BOOT_LABEL_KEYS: Record<BootProgress["status"], string> = {

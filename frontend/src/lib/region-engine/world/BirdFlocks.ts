@@ -28,6 +28,7 @@ import {
   LinearMipmapLinearFilter,
   Mesh,
   NearestFilter,
+  PerspectiveCamera,
   RGBAFormat,
   SRGBColorSpace,
   UnsignedByteType,
@@ -35,6 +36,7 @@ import {
 import { MeshBasicNodeMaterial } from "three/webgpu";
 import {
   attribute,
+  cameraPosition,
   clamp,
   cos,
   float,
@@ -64,23 +66,17 @@ import {
 } from "../render/fields";
 import type { RegionParams, WorldFields } from "../types";
 import { makeRng } from "../veg/treeBuilder";
+import type { BirdFlockEmitter } from "./birdKinematics";
+import type { BirdSpeciesId, Habitat } from "./birdSpecies";
 
 // ---------------------------------------------------------------------------
 // 鸟种
 // ---------------------------------------------------------------------------
 
 type Formation = "column" | "ball" | "mill" | "layer" | "pack" | "vee";
-type Habitat =
-  | "urban"
-  | "farmland"
-  | "forest"
-  | "meadow"
-  | "wetland"
-  | "water"
-  | "coast"
-  | "alpine";
 
 type SpeciesDef = {
+  id: BirdSpeciesId;
   name: string;
   /** 体长 m(喙至尾基,不含尾流苏) */
   len: [number, number];
@@ -121,6 +117,7 @@ type SpeciesDef = {
 
 const SPECIES: SpeciesDef[] = [
   {
+    id: "sparrow",
     name: "麻雀",
     len: [0.14, 0.17],
     heightK: [1.05, 1.18],
@@ -150,6 +147,7 @@ const SPECIES: SpeciesDef[] = [
     beam: [1.0, 0.62, 0.22],
   },
   {
+    id: "swallow",
     name: "家燕",
     len: [0.15, 0.19],
     heightK: [0.78, 0.88],
@@ -179,6 +177,7 @@ const SPECIES: SpeciesDef[] = [
     beam: [0.22, 0.48, 1.0],
   },
   {
+    id: "pigeon",
     name: "原鸽",
     len: [0.3, 0.36],
     heightK: [1.0, 1.1],
@@ -208,6 +207,7 @@ const SPECIES: SpeciesDef[] = [
     beam: [0.42, 0.55, 0.88],
   },
   {
+    id: "magpie",
     name: "喜鹊",
     len: [0.42, 0.5],
     heightK: [0.92, 1.02],
@@ -237,6 +237,7 @@ const SPECIES: SpeciesDef[] = [
     beam: [0.18, 0.82, 0.72],
   },
   {
+    id: "crow",
     name: "乌鸦",
     len: [0.44, 0.54],
     heightK: [1.02, 1.12],
@@ -266,6 +267,7 @@ const SPECIES: SpeciesDef[] = [
     beam: [0.55, 0.28, 1.0],
   },
   {
+    id: "mallard",
     name: "绿头鸭",
     len: [0.5, 0.65],
     heightK: [0.95, 1.08],
@@ -295,6 +297,7 @@ const SPECIES: SpeciesDef[] = [
     beam: [0.18, 0.95, 0.38],
   },
   {
+    id: "egret",
     name: "白鹭",
     len: [0.52, 0.65],
     heightK: [0.88, 0.98],
@@ -324,6 +327,7 @@ const SPECIES: SpeciesDef[] = [
     beam: [0.95, 0.96, 1.0],
   },
   {
+    id: "gull",
     name: "银鸥",
     len: [0.54, 0.68],
     heightK: [1.0, 1.1],
@@ -353,6 +357,7 @@ const SPECIES: SpeciesDef[] = [
     beam: [0.68, 0.84, 1.0],
   },
   {
+    id: "goose",
     name: "鸿雁",
     len: [0.78, 0.95],
     heightK: [1.05, 1.16],
@@ -382,6 +387,7 @@ const SPECIES: SpeciesDef[] = [
     beam: [1.0, 0.68, 0.32],
   },
   {
+    id: "kestrel",
     name: "红隼",
     len: [0.32, 0.39],
     heightK: [0.9, 1.0],
@@ -411,6 +417,7 @@ const SPECIES: SpeciesDef[] = [
     beam: [1.0, 0.38, 0.12],
   },
   {
+    id: "eagle-owl",
     name: "雕鸮",
     len: [0.6, 0.75],
     heightK: [1.12, 1.28],
@@ -440,6 +447,7 @@ const SPECIES: SpeciesDef[] = [
     beam: [1.0, 0.72, 0.18],
   },
   {
+    id: "snowy-owl",
     name: "雪鸮",
     len: [0.52, 0.7],
     heightK: [1.15, 1.3],
@@ -484,6 +492,10 @@ const TILE_W = 128;
 const TILE_H = 96;
 const ATLAS_MAX = 4096;
 const MAX_BIRDS = 2048;
+/** 近景高模同时在场的上限;其余走低模,轮廓由后处理补 */
+const HIGH_CAP = 96;
+const HIGH_DIST = 80;
+const SKIN_TILES_MAX = 256;
 
 function packSkinAtlas(n: number): {
   cols: number;
@@ -990,7 +1002,7 @@ function paintSkinTile(
           b += sheen * 0.22;
         }
 
-          // 廓羽:泪滴形往后叠,不要围成环节鳞片
+          // 廓羽:娉淮褰㈠線鍚庡彔,涓嶈鍥存垚鐜妭槌炵墖
           if (pal.nU > 0 && u > 0.08 && u < 0.94) {
             const isBack = td < 0.52;
             const isBelly = td > 0.5;
@@ -1064,7 +1076,7 @@ function paintSkinTile(
             b *= 1 - stria * fade * 0.032;
           }
 
-        // 喙:吻端(Cornell:麻雀粗锥喙、鹭细长、隼钩喙)
+        // 鍠?鍚荤(Cornell:麻雀绮楅敟鍠欍€侀弓缁嗛暱銆侀毤閽╁枡)
         const beak = sm((0.11 - u) / 0.05);
         if (beak > 0.02) {
           r = mixN(r, pal.beak[0], beak);
@@ -1087,7 +1099,7 @@ function paintSkinTile(
           b *= 1 - nare * 0.5;
         }
 
-        // 眼:深色眼圈 + 虹膜 + 瞳孔,几乎不见巩膜
+        // 鐪?深色眼圈 + 虹膜 + 瞳孔,鍑犱箮涓嶈宸╄啘
         const eyeT = pal.kind === "eagleowl" || pal.kind === "snowy" ? 0.34 : 0.28;
         const eyeU = pal.kind === "eagleowl" || pal.kind === "snowy" ? 0.13 : 0.1;
         const eyeS = pal.kind === "eagleowl" || pal.kind === "snowy" ? 5.2 : 6.4;
@@ -1150,8 +1162,8 @@ function paintSkinTile(
         g = (g + hueJ * 0.04) * lumJ * gk;
         b = (b - hueJ * 0.08) * lumJ * gk;
       } else {
-        // 翼/尾图块:u<0.66 覆羽叠鳞;u 0.66~0.84 次级飞羽;u>0.84 初级飞羽。
-        // 每根几何羽只采样「单片羽」区域,不再把整翼 u 当展向切条。
+        // 缈?灏惧浘鍧?u<0.66 覆羽叠鳞;u 0.66~0.84 次级飞羽;u>0.84 初级飞羽銆?
+        // 每根几何羽只采样銆屽崟鐗囩窘銆嶅尯鍩?涓嶅啀鎶婃暣缈?u 褰撳睍鍚戝垏鏉°€?
         const chord = (fv - 0.54) / 0.46;
         const lead = sm((0.2 - chord) / 0.14);
         r = pal.wing[0];
@@ -1402,7 +1414,8 @@ function buildMorphTex(): DataTexture {
 // aPart: 0 体 1 覆羽/次级 2 尾 3 喙 4 眼 5 初级飞羽 6 跗跖 7 爪
 // ---------------------------------------------------------------------------
 
-function birdGeometry(): BufferGeometry {
+function birdGeometry(detail: "high" | "low"): BufferGeometry {
+  const high = detail === "high";
   const pos: number[] = [];
   const uvA: number[] = [];
   const part: number[] = [];
@@ -1425,11 +1438,11 @@ function birdGeometry(): BufferGeometry {
     return pos.length / 3 - 1;
   };
 
-  // Cornell:麻雀「chunky, rounded head, full breast」;额收到喙,颊最宽
+  // Cornell:麻雀 chunky, rounded head, full breast;额收到喙,颊最宽
   const T = [0, 0.05, 0.1, 0.17, 0.26, 0.38, 0.5, 0.62, 0.74, 0.86, 0.94, 1];
   const HY = [0.032, 0.07, 0.078, 0.052, 0.1, 0.122, 0.118, 0.092, 0.068, 0.046, 0.032, 0.024];
   const HW = [0.024, 0.066, 0.076, 0.05, 0.098, 0.118, 0.112, 0.086, 0.062, 0.044, 0.032, 0.022];
-  const K = 10;
+  const K = high ? 10 : 8;
 
   const ring0 = pos.length / 3;
   const RV = K + 1;
@@ -1464,10 +1477,10 @@ function birdGeometry(): BufferGeometry {
     idx.push(rump, last + k + 1, last + k);
   }
 
-  // 颅顶:额接到喙,侧面 UV 走白颊,顶面走冠
+  // 颅顶:额接到喙,渚ч潰 UV 璧扮櫧棰?顶面走冠
   {
-    const nLat = 5;
-    const nLon = 8;
+    const nLat = high ? 5 : 4;
+    const nLon = high ? 8 : 6;
     const grid: number[][] = [];
     for (let i = 0; i <= nLat; i++) {
       const th = (i / nLat) * Math.PI;
@@ -1503,14 +1516,14 @@ function birdGeometry(): BufferGeometry {
     }
   }
 
-  // 眼:侧前方凸出;UV 钉在虹膜/颊白,侧面才能看见
+  // 眼:侧前方突出,UV 钉在虹膜/颊白,侧面才能看见
   const addEye = (sgn: number) => {
     const cx = 0.488;
     const cy = 0.022;
     const cz = sgn * 0.07;
-    const nLat = 3;
-    const nLon = 6;
-    const rr = 0.015;
+    const nLat = high ? 3 : 2;
+    const nLon = high ? 6 : 5;
+    const rr = high ? 0.015 : 0.013;
     const grid: number[][] = [];
     for (let i = 0; i <= nLat; i++) {
       const t = i / nLat;
@@ -1558,12 +1571,12 @@ function birdGeometry(): BufferGeometry {
     };
     addDisc(0.011, 0.0135, 0.12, sgn > 0 ? 0.14 : 0.38);
     addDisc(0.0072, 0.0146, 0.105, sgn > 0 ? 0.146 : 0.374);
-    addDisc(0.0032, 0.0154, 0.1, sgn > 0 ? 0.146 : 0.374);
+    if (high) addDisc(0.0032, 0.0154, 0.1, sgn > 0 ? 0.146 : 0.374);
   };
   addEye(1);
   addEye(-1);
 
-  // 喙:侧面尖锥+口裂,俯视仍是短阔三角;UV 钉在角质/蜡膜
+  // 喙:侧面尖锥+上下颌,俯视仍是短宽三角;UV 钉在角质/蜡膜
   const addMandible = (yBias: number, yHook: number, scale: number, tipX: number) => {
     const sides = 6;
     const rings = [
@@ -1634,10 +1647,12 @@ function birdGeometry(): BufferGeometry {
       else idx.push(c, ring[n1] as number, ring[k] as number);
     }
   };
-  addNare(1);
-  addNare(-1);
+  if (high) {
+    addNare(1);
+    addNare(-1);
+  }
 
-  // 单片羽:前羽片窄、后羽片宽,羽轴略隆起。翼与尾共用。
+  // 鍗曠墖缇?鍓嶇窘鐗囩獎銆佸悗缇界墖瀹?缇借酱鐣ラ殕璧枫€傜考涓庡熬鍏辩敤銆?
   const addFeather = (
     x0: number,
     y0: number,
@@ -1713,7 +1728,7 @@ function birdGeometry(): BufferGeometry {
     }
   };
 
-  // 翼面:翼膜只铺到覆羽根(前缘丰满),后缘交给叠着的飞羽,才看得出单片羽。
+  // 翼面:缈艰啘鍙摵鍒拌缇芥牴(鍓嶇紭涓版弧),鍚庣紭浜ょ粰鍙犵潃鐨勯缇?鎵嶇湅寰楀嚭鍗曠墖缇姐€?
   const addWing = (sgn: number) => {
     const zSh = 0.108;
     const zWr = 0.33;
@@ -1776,8 +1791,8 @@ function birdGeometry(): BufferGeometry {
     };
 
     const addSail = (z0: number, z1: number, part: number, span0: number, span1: number) => {
-      const nS = 5;
-      const nC = 3;
+      const nS = high ? 5 : 3;
+      const nC = high ? 3 : 2;
       const grid: number[][] = [];
       for (let i = 0; i <= nS; i++) {
         const ts = i / nS;
@@ -1817,7 +1832,36 @@ function birdGeometry(): BufferGeometry {
     addSail(zSh, zWr + 0.08, 1, 0.04, 0.56);
     addSail(zWr - 0.1, zTip, 5, 0.4, 1);
 
-    // 前缘缘覆羽:贴前缘,减段数
+    if (!high) {
+      for (let i = 0; i < 4; i++) {
+        const k = i / 3;
+        const z = zSh + 0.02 + k * (zWr - zSh);
+        place(z, 0.24, z + 0.012, 0.94, 0.058, spanOf(z), spanOf(z) + 0.16, 1, 0.66, 0.17, 2, "blade", -0.003, 2);
+      }
+      const handLen = 0.15;
+      for (let i = 0; i < 6; i++) {
+        const k = i / 5;
+        const slot = Math.max(k - 0.65, 0) / 0.35;
+        const zRoot = zWr - 0.05 + k * handLen;
+        const zEnd = zWr + 0.02 + k * (zTip - zWr) * (1 + slot * 0.06);
+        place(
+          zRoot,
+          0.26 + k * 0.05,
+          zEnd,
+          0.95 + slot * 0.06,
+          (0.056 - k * 0.008) * (1 - slot * 0.16),
+          spanOf(zRoot),
+          1,
+          5,
+          0.84,
+          0.14,
+          3,
+          slot > 0.45 ? "lance" : "blade",
+          -0.004,
+          2,
+        );
+      }
+    } else {
     for (let i = 0; i < 10; i++) {
       const k = i / 9;
       const az0 = lerpN(zSh, zTip * 0.94, k) + (i & 1 ? 0.004 : 0);
@@ -1859,7 +1903,7 @@ function birdGeometry(): BufferGeometry {
       place(z, 0.04, z + 0.01, 0.36, 0.028, sp, sp + 0.07, part, 0.06, 0.52, 2, "oval", 0.0095, 2);
     }
 
-    // 中覆羽:斜向后,搭上大覆羽根
+    // 中覆羽:斜向后,叠上大覆羽根
     for (let i = 0; i < 8; i++) {
       const k = i / 7;
       const z = zSh + 0.006 + k * (zTip - zSh) * 0.9 + (i & 1 ? 0.004 : -0.002);
@@ -1877,7 +1921,7 @@ function birdGeometry(): BufferGeometry {
       place(z, 0.22, z + 0.008, 0.76, 0.036, sp, sp + 0.12, part, 0.62, 0.2, 3, "blade", 0.0032, 3);
     }
 
-    // 三级飞羽:贴身的后缘,叠在次级内侧
+    // 三级飞羽:璐磋韩鐨勫悗缂?叠在次级内侧
     for (let i = 0; i < 3; i++) {
       const k = i / 2;
       addFeather(
@@ -1953,7 +1997,7 @@ function birdGeometry(): BufferGeometry {
       place(z, 0.16, z + 0.008, 0.66, 0.034, spanOf(z), spanOf(z) + 0.1, 5, 0.62, 0.2, 3, "blade", 0.0035, 3);
     }
 
-    // 初级飞羽:根伸进覆羽下;内侧密叠接次级
+    // 初级飞羽:根扎进覆羽下;内侧密叠接次级
     const handLen = 0.15;
     for (let i = 0; i < 8; i++) {
       const k = i / 7;
@@ -1976,6 +2020,7 @@ function birdGeometry(): BufferGeometry {
         -0.004 - i * 0.00045,
         3,
       );
+    }
     }
   };
   addWing(1);
@@ -2039,7 +2084,8 @@ function birdGeometry(): BufferGeometry {
     }
   };
 
-  // 体羽按羽区(pterylae)铺,不围成环节:冠、颊、脊索、胁、腹索、尾上覆羽
+  if (high) {
+  // 浣撶窘鎸夌窘鍖?pterylae)閾?涓嶅洿鎴愮幆鑺?鍐犮€侀銆佽剨绱€佽儊銆佽吂绱€佸熬涓婅缇?
   for (let i = 0; i < 6; i++) {
     const k = i / 5 - 0.5;
     addPlume(0.04, k * 0.7, 0.045, 0.012, 0.007);
@@ -2068,9 +2114,11 @@ function birdGeometry(): BufferGeometry {
     const k = i / 5 - 0.5;
     addPlume(0.72, k * 0.85, 0.12, 0.022, 0.01);
   }
+  }
 
-  // 尾:无整板垫,覆羽盖住腰,舵羽叠成圆扇
+  // 灏?无整板垫,瑕嗙窘鐩栦綇鑵?舵羽叠成圆扇
   {
+    if (high) {
     for (let i = 0; i < 8; i++) {
       const side = i / 7 - 0.5;
       const lobe = Math.abs(side) * 2;
@@ -2117,8 +2165,9 @@ function birdGeometry(): BufferGeometry {
         2,
       );
     }
+    }
 
-    const RAYS = 10;
+    const RAYS = high ? 10 : 6;
     for (let i = 0; i < RAYS; i++) {
       const k = i / (RAYS - 1);
       const side = k - 0.5;
@@ -2231,8 +2280,10 @@ function birdGeometry(): BufferGeometry {
       addTube(ax, ay, az, ax + tdx, ay + tdy, az + tdz, 0.0044, 0.002, 0.48, 0.62, 7, 3);
     }
   };
-  addLeg(1);
-  addLeg(-1);
+  if (high) {
+    addLeg(1);
+    addLeg(-1);
+  }
 
   const geo = new BufferGeometry();
   geo.setAttribute("position", new BufferAttribute(new Float32Array(pos), 3));
@@ -2245,7 +2296,7 @@ function birdGeometry(): BufferGeometry {
 }
 
 // ---------------------------------------------------------------------------
-// 栖息地选点
+// 鏍栨伅鍦伴€夌偣
 // ---------------------------------------------------------------------------
 
 const MAX_SPOTS = 96;
@@ -2664,13 +2715,17 @@ function createBirdMesh(
   tex: WorldTextures,
   env: EnvState,
   flocks: FlockCfg[],
-): InstancedMesh {
+): {
+  high: InstancedMesh;
+  low: InstancedMesh;
+  update: (camera: PerspectiveCamera) => void;
+} {
   const total = Math.min(
     flocks.reduce((s, c) => s + c.count, 0),
     MAX_BIRDS,
   );
   const n = Math.max(total, 1);
-  const pack = packSkinAtlas(n);
+  const pack = packSkinAtlas(Math.min(n, SKIN_TILES_MAX));
   const atlasW = pack.cols * pack.tw;
   const atlasH = pack.rows * pack.th;
   if (atlasW > ATLAS_MAX || atlasH > ATLAS_MAX) {
@@ -2682,11 +2737,13 @@ function createBirdMesh(
   const ROWS = 9;
   const data = new Float32Array(n * ROWS * 4);
   const rng = makeRng(20260819);
+  const slices: { start: number; count: number; x: number; y: number; z: number; r: number }[] = [];
   let fi = 0;
-  outer: for (const sc of flocks) {
+  for (const sc of flocks) {
+    const start = fi;
     const { spec } = sc;
     for (let i = 0; i < sc.count; i++) {
-      if (fi >= n) break outer;
+      if (fi >= n) break;
       const put = (row: number, x: number, y: number, z: number, w: number) => {
         const o = (fi * ROWS + row) * 4;
         data[o] = x;
@@ -2744,6 +2801,17 @@ function createBirdMesh(
       put(8, Math.cos(sc.rot), Math.sin(sc.rot), 0.4 + rng() * 1.1, tileIdx);
       fi++;
     }
+    if (fi > start) {
+      slices.push({
+        start,
+        count: fi - start,
+        x: sc.spot.x,
+        y: sc.y,
+        z: sc.spot.z,
+        r: Math.max(sc.rx, sc.rz) + 12,
+      });
+    }
+    if (fi >= n) break;
   }
 
   const pTex = new DataTexture(data, ROWS, n, RGBAFormat, FloatType);
@@ -2764,214 +2832,298 @@ function createBirdMesh(
   skinAtlas.flipY = false;
   skinAtlas.needsUpdate = true;
   const morphTex = buildMorphTex();
-  const geo = birdGeometry();
 
-  const mat = new MeshBasicNodeMaterial();
-  mat.side = DoubleSide;
-  mat.fog = true;
+  const remapData = new Float32Array(HIGH_CAP * 4);
+  const remapTex = new DataTexture(remapData, 1, HIGH_CAP, RGBAFormat, FloatType);
+  remapTex.magFilter = NearestFilter;
+  remapTex.minFilter = NearestFilter;
+  remapTex.wrapS = ClampToEdgeWrapping;
+  remapTex.wrapT = ClampToEdgeWrapping;
+  remapTex.generateMipmaps = false;
+  remapTex.needsUpdate = true;
 
-  const fp = (row: number) =>
-    textureLoad(pTex, ivec2(row, instanceIndex.toInt())).toVar() as unknown as NV4;
-  const a = fp(0);
-  const b = fp(1);
-  const c = fp(2);
-  const d = fp(3);
-  const e = fp(4);
-  const fP = fp(5);
-  const gC = fp(6);
-  const t7 = fp(7);
-  const rC = fp(8);
-  const specI = e.w.toInt();
-  const m0 = textureLoad(morphTex, ivec2(0, specI)).toVar() as unknown as NV4;
-  const m1 = textureLoad(morphTex, ivec2(1, specI)).toVar() as unknown as NV4;
-  const m2 = textureLoad(morphTex, ivec2(2, specI)).toVar() as unknown as NV4;
-  const aPart = attribute("aPart") as unknown as NF;
-  const aSpan = attribute("aSpan") as unknown as NF;
+  const lowRemapData = new Float32Array(n * 4);
+  for (let i = 0; i < n; i++) lowRemapData[i * 4] = i;
+  const lowRemapTex = new DataTexture(lowRemapData, 1, n, RGBAFormat, FloatType);
+  lowRemapTex.magFilter = NearestFilter;
+  lowRemapTex.minFilter = NearestFilter;
+  lowRemapTex.wrapS = ClampToEdgeWrapping;
+  lowRemapTex.wrapT = ClampToEdgeWrapping;
+  lowRemapTex.generateMipmaps = false;
+  lowRemapTex.needsUpdate = true;
 
-  const tf = env.time.sub(c.x).toVar();
-  const p0 = pathEval(a, b, d, rC, tf);
-  const p1 = pathEval(a, b, d, rC, tf.add(0.16));
-  const p2 = pathEval(a, b, d, rC, tf.add(0.64));
-  const vel = p1.sub(p0).div(0.16).toVar();
-  const speed = vel.length().max(0.04).toVar();
-  const F = vel.div(speed).toVar();
-  const r0 = vec3(F.z, 0, F.x.negate()).toVar();
-  const R = r0.div(r0.length().max(0.0001)).toVar();
-  const u0 = vec3(
-    F.y.mul(R.z).sub(F.z.mul(R.y)),
-    F.z.mul(R.x).sub(F.x.mul(R.z)),
-    F.x.mul(R.y).sub(F.y.mul(R.x)),
-  ).toVar();
-  const U = u0.div(u0.length().max(0.0001)).toVar();
-  const dh = p2.sub(p1).toVar();
-  const h2 = dh.div(dh.length().max(0.0001)).toVar();
-  const yawP = clamp(F.x.mul(h2.z).sub(F.z.mul(h2.x)).mul(1.8), -0.7, 0.7).toVar();
-  const roll = yawP.mul(1.15);
-  const cr = cos(roll);
-  const sr = sin(roll);
-  const R2 = R.mul(cr).add(U.mul(sr)).toVar();
-  const U2 = U.mul(cr).sub(R.mul(sr)).toVar();
+  const makeLayer = (
+    detail: "high" | "low",
+    cap: number,
+    remap: DataTexture,
+    isHigh: boolean,
+  ): InstancedMesh => {
+    const geo = birdGeometry(detail);
+    const mat = new MeshBasicNodeMaterial();
+    mat.side = DoubleSide;
+    mat.fog = true;
 
-  const wanL = sin(tf.mul(0.38).add(c.w.mul(6.2831853))).mul(rC.z);
-  const wanV = cos(tf.mul(0.29).add(c.w.mul(9.7))).mul(rC.z.mul(0.45));
-  const c0 = p0.add(R.mul(c.y.add(wanL))).add(U.mul(c.z.add(wanV))).toVar();
-  const cxz = vec2(c0.x, c0.z).toVar();
-  const bedH = sampleFloatBilinear(tex.heightTex, cxz, tex.res, tex.size);
-  const wl = sampleWaterLevel(tex.waterExtTex, cxz, tex.res, tex.size);
-  const floorY = mix(bedH, bedH.max(wl.y), wl.valid).add(t7.x).toVar();
-  const yMax = floorY.add(t7.y).toVar();
-  const center = vec3(c0.x, clamp(c0.y, floorY, yMax), c0.z).toVar();
+    const instI = textureLoad(remap, ivec2(0, instanceIndex.toInt())).x.toInt();
+    const fp = (row: number) =>
+      textureLoad(pTex, ivec2(row, instI)).toVar() as unknown as NV4;
+    const a = fp(0);
+    const b = fp(1);
+    const c = fp(2);
+    const d = fp(3);
+    const e = fp(4);
+    const fP = fp(5);
+    const gC = fp(6);
+    const t7 = fp(7);
+    const rC = fp(8);
+    const specI = e.w.toInt();
+    const m0 = textureLoad(morphTex, ivec2(0, specI)).toVar() as unknown as NV4;
+    const m1 = textureLoad(morphTex, ivec2(1, specI)).toVar() as unknown as NV4;
+    const m2 = textureLoad(morphTex, ivec2(2, specI)).toVar() as unknown as NV4;
+    const aPart = attribute("aPart") as unknown as NF;
+    const aSpan = attribute("aSpan") as unknown as NF;
 
-  const wArm = float(1).sub(aPart.sub(1).abs().min(1)).toVar();
-  const wHand = float(1).sub(aPart.sub(5).abs().min(1)).toVar();
-  const wTail = float(1).sub(aPart.sub(2).abs().min(1)).toVar();
-  const wBeak = float(1).sub(aPart.sub(3).abs().min(1)).toVar();
-  const wEye = float(1).sub(aPart.sub(4).abs().min(1)).toVar();
-  const wFoot = float(1).sub(aPart.sub(6).abs().min(1)).toVar();
-  const wClaw = float(1).sub(aPart.sub(7).abs().min(1)).toVar();
-  const wWing = wArm.add(wHand).toVar();
-  const wLeg = wFoot.add(wClaw).toVar();
-  const wBody = float(1)
-    .sub(wWing)
-    .sub(wTail)
-    .sub(wBeak)
-    .sub(wEye)
-    .sub(wLeg)
-    .max(0);
+    const tf = env.time.sub(c.x).toVar();
+    const p0 = pathEval(a, b, d, rC, tf);
+    const p1 = pathEval(a, b, d, rC, tf.add(0.16));
+    const p2 = pathEval(a, b, d, rC, tf.add(0.64));
+    const vel = p1.sub(p0).div(0.16).toVar();
+    const speed = vel.length().max(0.04).toVar();
+    const F = vel.div(speed).toVar();
+    const r0 = vec3(F.z, 0, F.x.negate()).toVar();
+    const R = r0.div(r0.length().max(0.0001)).toVar();
+    const u0 = vec3(
+      F.y.mul(R.z).sub(F.z.mul(R.y)),
+      F.z.mul(R.x).sub(F.x.mul(R.z)),
+      F.x.mul(R.y).sub(F.y.mul(R.x)),
+    ).toVar();
+    const U = u0.div(u0.length().max(0.0001)).toVar();
+    const dh = p2.sub(p1).toVar();
+    const h2 = dh.div(dh.length().max(0.0001)).toVar();
+    const yawP = clamp(F.x.mul(h2.z).sub(F.z.mul(h2.x)).mul(1.8), -0.7, 0.7).toVar();
+    const roll = yawP.mul(1.15);
+    const cr = cos(roll);
+    const sr = sin(roll);
+    const R2 = R.mul(cr).add(U.mul(sr)).toVar();
+    const U2 = U.mul(cr).sub(R.mul(sr)).toVar();
 
-  const glideK = fP.y.min(0.95);
-  const flapPh = env.time.mul(fP.x).add(c.w.mul(6.2831853)).toVar();
-  const burst = smoothstep(float(-0.12), float(0.38), sin(env.time.mul(0.31).add(c.w.mul(5.1))));
-  const flapGain = mix(float(1), burst, glideK.mul(0.7)).mul(float(1).sub(glideK.mul(0.12)));
-  // 沿翼展行波绕肩;初级飞羽(aPart=5)多绕一点并在上拍收拢,各羽分开所以不会折成扇骨
-  const spanK = clamp(aSpan, 0, 1).toVar();
-  const trailK = clamp(uv().y.sub(0.54).div(0.46), 0, 1);
-  const wave = sin(flapPh.sub(spanK.mul(0.58)).sub(trailK.mul(0.32))).toVar();
-  const waveA = wave.mul(0.96).sub(0.1).mul(flapGain).mul(gC.w).toVar();
-  const amp = mix(float(0.5), float(1.48), spanK.mul(spanK.mul(0.42).add(0.58)));
-  const theta = float(0.1)
-    .add(waveA.mul(amp))
-    .add(wHand.mul(waveA).mul(0.08))
-    .mul(wWing)
-    .toVar();
-  const cFl = cos(theta);
-  const sFl = sin(theta);
-  const zAbs = positionLocal.z.abs();
-  const tLobe = mix(zAbs.mul(4.2).min(1), clamp(aSpan, 0, 1), wTail).toVar();
+    const wanL = sin(tf.mul(0.38).add(c.w.mul(6.2831853))).mul(rC.z);
+    const wanV = cos(tf.mul(0.29).add(c.w.mul(9.7))).mul(rC.z.mul(0.45));
+    const c0 = p0.add(R.mul(c.y.add(wanL))).add(U.mul(c.z.add(wanV))).toVar();
+    const cxz = vec2(c0.x, c0.z).toVar();
+    const bedH = sampleFloatBilinear(tex.heightTex, cxz, tex.res, tex.size);
+    const wl = sampleWaterLevel(tex.waterExtTex, cxz, tex.res, tex.size);
+    const floorY = mix(bedH, bedH.max(wl.y), wl.valid).add(t7.x).toVar();
+    const yMax = floorY.add(t7.y).toVar();
+    const center = vec3(c0.x, clamp(c0.y, floorY, yMax), c0.z).toVar();
 
-  const px0 = positionLocal.x
-    .add(wBeak.mul(m1.x.sub(1)).mul(positionLocal.x.sub(0.5).max(0)).mul(2.4))
-    .add(wTail.mul(m0.z.sub(1)).mul(positionLocal.x.add(0.48)))
-    .add(wTail.mul(m0.w).mul(tLobe).mul(positionLocal.x.add(0.42)).mul(1.15))
-    .sub(wWing.mul(m0.y).mul(positionLocal.x.sub(0.1).max(0)).mul(0.48))
-    .add(wWing.mul(m1.y.sub(1)).mul(positionLocal.x.sub(0.02)))
-    .add(
-      wWing
-        .mul(m1.z)
-        .mul(sin(spanK.mul(3.14159)))
-        .mul(smoothstep(-0.02, 0.16, positionLocal.x))
-        .mul(0.04),
+    const wArm = float(1).sub(aPart.sub(1).abs().min(1)).toVar();
+    const wHand = float(1).sub(aPart.sub(5).abs().min(1)).toVar();
+    const wTail = float(1).sub(aPart.sub(2).abs().min(1)).toVar();
+    const wBeak = float(1).sub(aPart.sub(3).abs().min(1)).toVar();
+    const wEye = float(1).sub(aPart.sub(4).abs().min(1)).toVar();
+    const wFoot = float(1).sub(aPart.sub(6).abs().min(1)).toVar();
+    const wClaw = float(1).sub(aPart.sub(7).abs().min(1)).toVar();
+    const wWing = wArm.add(wHand).toVar();
+    const wLeg = wFoot.add(wClaw).toVar();
+    const wBody = float(1)
+      .sub(wWing)
+      .sub(wTail)
+      .sub(wBeak)
+      .sub(wEye)
+      .sub(wLeg)
+      .max(0);
+
+    const glideK = fP.y.min(0.95);
+    const flapPh = env.time.mul(fP.x).add(c.w.mul(6.2831853)).toVar();
+    const burst = smoothstep(float(-0.12), float(0.38), sin(env.time.mul(0.31).add(c.w.mul(5.1))));
+    const flapGain = mix(float(1), burst, glideK.mul(0.7)).mul(float(1).sub(glideK.mul(0.12)));
+    const spanK = clamp(aSpan, 0, 1).toVar();
+    const trailK = clamp(uv().y.sub(0.54).div(0.46), 0, 1);
+    const wave = sin(flapPh.sub(spanK.mul(0.58)).sub(trailK.mul(0.32))).toVar();
+    const waveA = wave.mul(0.96).sub(0.1).mul(flapGain).mul(gC.w).toVar();
+    const amp = mix(float(0.5), float(1.48), spanK.mul(spanK.mul(0.42).add(0.58)));
+    const theta = float(0.1)
+      .add(waveA.mul(amp))
+      .add(wHand.mul(waveA).mul(0.08))
+      .mul(wWing)
+      .toVar();
+    const cFl = cos(theta);
+    const sFl = sin(theta);
+    const zAbs = positionLocal.z.abs();
+    const tLobe = mix(zAbs.mul(4.2).min(1), clamp(aSpan, 0, 1), wTail).toVar();
+
+    const px0 = positionLocal.x
+      .add(wBeak.mul(m1.x.sub(1)).mul(positionLocal.x.sub(0.5).max(0)).mul(2.4))
+      .add(wTail.mul(m0.z.sub(1)).mul(positionLocal.x.add(0.48)))
+      .add(wTail.mul(m0.w).mul(tLobe).mul(positionLocal.x.add(0.42)).mul(1.15))
+      .sub(wWing.mul(m0.y).mul(positionLocal.x.sub(0.1).max(0)).mul(0.48))
+      .add(wWing.mul(m1.y.sub(1)).mul(positionLocal.x.sub(0.02)))
+      .add(
+        wWing
+          .mul(m1.z)
+          .mul(sin(spanK.mul(3.14159)))
+          .mul(smoothstep(-0.02, 0.16, positionLocal.x))
+          .mul(0.04),
+      );
+    const headK = smoothstep(0.34, 0.52, positionLocal.x).mul(wBody.add(wEye).add(wBeak.mul(0.35)));
+    const py0 = positionLocal.y
+      .mul(e.x)
+      .mul(headK.mul(0.22).add(1))
+      .add(wBeak.mul(m1.x.sub(1)).mul(-0.014))
+      .add(wEye.mul(0.004));
+    const pz0 = positionLocal.z
+      .mul(e.y)
+      .mul(headK.mul(0.18).add(1))
+      .mul(wWing.mul(m0.x.sub(1)).add(1))
+      .mul(wTail.mul(m2.x.sub(1)).add(1))
+      .mul(wBeak.mul(0.12).add(1))
+      .mul(wEye.mul(0.28).add(1));
+
+    const ySh = float(0.036);
+    const zSh = float(0.108);
+    const yRel = py0.sub(ySh);
+    const zRel = zAbs.sub(zSh);
+    const upK = smoothstep(float(-0.1), float(0.68), theta);
+    const downK = smoothstep(float(0.18), float(-0.52), theta);
+    const wrist = smoothstep(0.36, 0.92, spanK);
+    const fold = upK.mul(mix(wrist.mul(0.18), float(0.28), wHand));
+    const pyW = ySh.add(yRel.mul(cFl)).add(zRel.mul(sFl));
+    const zWabs = zSh
+      .add(zRel.mul(cFl))
+      .sub(yRel.mul(sFl))
+      .mul(float(1).add(downK.mul(spanK).mul(0.11)))
+      .mul(float(1).sub(fold.mul(0.22)));
+    const zSgn = pz0.div(zAbs.max(0.0001));
+    const pzW = zSgn.mul(zWabs.max(0.02));
+    const pxW = px0.sub(fold.mul(spanK).mul(mix(float(0.045), float(0.12), wHand)));
+    const flapIn = waveA;
+    const flapOut = sin(flapPh.sub(0.5)).mul(flapGain).mul(gC.w);
+    const tailSpread = float(0.96).add(flapIn.mul(0.08));
+    const pyT = py0.add(flapIn.mul(0.04)).add(yawP.abs().mul(tLobe).mul(0.022));
+    const pzT = pz0.mul(tailSpread).add(yawP.mul(0.07).mul(tLobe));
+    const pxT = px0.add(flapIn.mul(m0.w).mul(tLobe).mul(-0.035));
+    const pyL = py0.add(flapIn.mul(0.014)).add(wClaw.mul(flapOut).mul(0.008));
+    const pxL = px0.add(flapIn.mul(-0.018));
+    const pzL = pz0.mul(float(0.9).add(flapIn.mul(0.06)));
+
+    const px = px0
+      .add(wWing.mul(pxW.sub(px0)))
+      .add(wTail.mul(pxT.sub(px0)))
+      .add(wLeg.mul(pxL.sub(px0)));
+    const py = py0
+      .add(wWing.mul(pyW.sub(py0)))
+      .add(wTail.mul(pyT.sub(py0)))
+      .add(wLeg.mul(pyL.sub(py0)));
+    const pz = pz0
+      .add(wWing.mul(pzW.sub(pz0)))
+      .add(wTail.mul(pzT.sub(pz0)))
+      .add(wLeg.mul(pzL.sub(pz0)));
+
+    const s = float(0.5).sub(px);
+    const zBend = yawP.mul(s.sub(0.25)).mul(0.28);
+    const visDay = env.nightK.oneMinus();
+    const vis = mix(visDay, env.nightK, m1.w);
+    const dist = cameraPosition.sub(center).length();
+    const lodShow = isHigh
+      ? smoothstep(66, 52, dist)
+      : smoothstep(48, 62, dist);
+    const show = smoothstep(0.06, 0.32, vis).mul(lodShow);
+
+    mat.positionNode = center.add(
+      F.mul(px).add(U2.mul(py)).add(R2.mul(pz.add(zBend))).mul(a.w.mul(show)),
     );
-  const headK = smoothstep(0.34, 0.52, positionLocal.x).mul(wBody.add(wEye).add(wBeak.mul(0.35)));
-  const py0 = positionLocal.y
-    .mul(e.x)
-    .mul(headK.mul(0.22).add(1))
-    .add(wBeak.mul(m1.x.sub(1)).mul(-0.014))
-    .add(wEye.mul(0.004));
-  const pz0 = positionLocal.z
-    .mul(e.y)
-    .mul(headK.mul(0.18).add(1))
-    .mul(wWing.mul(m0.x.sub(1)).add(1))
-    .mul(wTail.mul(m2.x.sub(1)).add(1))
-    .mul(wBeak.mul(0.12).add(1))
-    .mul(wEye.mul(0.28).add(1));
 
-  const ySh = float(0.036);
-  const zSh = float(0.108);
-  const yRel = py0.sub(ySh);
-  const zRel = zAbs.sub(zSh);
-  const upK = smoothstep(float(-0.1), float(0.68), theta);
-  const downK = smoothstep(float(0.18), float(-0.52), theta);
-  const wrist = smoothstep(0.36, 0.92, spanK);
-  const fold = upK.mul(mix(wrist.mul(0.18), float(0.28), wHand));
-  const pyW = ySh.add(yRel.mul(cFl)).add(zRel.mul(sFl));
-  const zWabs = zSh
-    .add(zRel.mul(cFl))
-    .sub(yRel.mul(sFl))
-    .mul(float(1).add(downK.mul(spanK).mul(0.11)))
-    .mul(float(1).sub(fold.mul(0.22)));
-  const zSgn = pz0.div(zAbs.max(0.0001));
-  const pzW = zSgn.mul(zWabs.max(0.02));
-  const pxW = px0.sub(fold.mul(spanK).mul(mix(float(0.045), float(0.12), wHand)));
-  const flapIn = waveA;
-  const flapOut = sin(flapPh.sub(0.5)).mul(flapGain).mul(gC.w);
-  const tailSpread = float(0.96).add(flapIn.mul(0.08));
-  const pyT = py0.add(flapIn.mul(0.04)).add(yawP.abs().mul(tLobe).mul(0.022));
-  const pzT = pz0.mul(tailSpread).add(yawP.mul(0.07).mul(tLobe));
-  const pxT = px0.add(flapIn.mul(m0.w).mul(tLobe).mul(-0.035));
-  const pyL = py0.add(flapIn.mul(0.014)).add(wClaw.mul(flapOut).mul(0.008));
-  const pxL = px0.add(flapIn.mul(-0.018));
-  const pzL = pz0.mul(float(0.9).add(flapIn.mul(0.06)));
+    const tintV = varying(e.z) as unknown as NF;
+    const trailV = varying(trailK.mul(wWing)) as unknown as NF;
+    const nl = normalLocal;
+    const nWv = varying(F.mul(nl.x).add(U2.mul(nl.y)).add(R2.mul(nl.z))) as unknown as NV3;
+    const colsN = float(pack.cols);
+    const rowsN = float(pack.rows);
+    const tileI = rC.w;
+    const rowF = tileI.div(colsN).floor();
+    const colF = tileI.sub(rowF.mul(colsN));
+    const uTile = uv().x.mul(0.992).add(0.004);
+    const vTile = uv().y.mul(0.992).add(0.004);
+    const skinUvV = varying(vec2(uTile.add(colF).div(colsN), vTile.add(rowF).div(rowsN)));
+    let col = texture(skinAtlas, skinUvV).xyz.mul(tintV) as unknown as NV3;
+    const nW = nWv.normalize().toVar();
+    const sd = env.sunDir;
+    const lam = nW.x.mul(sd.x).add(nW.y.mul(sd.y)).add(nW.z.mul(sd.z));
+    const wrap = lam.mul(0.5).add(0.5);
+    col = col.mul(wrap.mul(0.42).add(0.58)) as unknown as NV3;
+    const spec = wrap.mul(wrap).mul(wrap).mul(0.1);
+    col = col.add(vec3(spec, spec.mul(0.95), spec.mul(0.88))) as unknown as NV3;
+    const rim = wrap.oneMinus().mul(trailV).mul(0.16);
+    col = col.add(vec3(rim.mul(0.9), rim.mul(0.72), rim.mul(0.5))) as unknown as NV3;
+    col = col.mul(env.nightK.mul(0.55).oneMinus()) as unknown as NV3;
+    const faceV = varying(wBeak.mul(0.38).add(wEye.mul(0.55))) as unknown as NF;
+    col = col.mul(faceV.add(1)) as unknown as NV3;
+    mat.colorNode = col;
 
-  const px = px0
-    .add(wWing.mul(pxW.sub(px0)))
-    .add(wTail.mul(pxT.sub(px0)))
-    .add(wLeg.mul(pxL.sub(px0)));
-  const py = py0
-    .add(wWing.mul(pyW.sub(py0)))
-    .add(wTail.mul(pyT.sub(py0)))
-    .add(wLeg.mul(pyL.sub(py0)));
-  const pz = pz0
-    .add(wWing.mul(pzW.sub(pz0)))
-    .add(wTail.mul(pzT.sub(pz0)))
-    .add(wLeg.mul(pzL.sub(pz0)));
+    const mesh = new InstancedMesh(geo, mat, cap);
+    mesh.count = cap;
+    mesh.frustumCulled = false;
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+    mesh.userData.skinAtlas = skinAtlas;
+    return mesh;
+  };
 
-  const s = float(0.5).sub(px);
-  const zBend = yawP.mul(s.sub(0.25)).mul(0.28);
-  const visDay = env.nightK.oneMinus();
-  const vis = mix(visDay, env.nightK, m1.w);
-  const show = smoothstep(0.06, 0.32, vis);
+  const high = makeLayer("high", HIGH_CAP, remapTex, true);
+  high.count = 0;
+  high.renderOrder = 1;
+  const low = makeLayer("low", n, lowRemapTex, false);
 
-  mat.positionNode = center.add(
-    F.mul(px).add(U2.mul(py)).add(R2.mul(pz.add(zBend))).mul(a.w.mul(show)),
-  );
+  let lastX = Infinity;
+  let lastY = Infinity;
+  let lastZ = Infinity;
+  const inHigh = new Uint8Array(n);
+  const update = (camera: PerspectiveCamera) => {
+    const cx = camera.position.x;
+    const cy = camera.position.y;
+    const cz = camera.position.z;
+    if (Number.isFinite(lastX) && Math.hypot(cx - lastX, cy - lastY, cz - lastZ) < 6) {
+      return;
+    }
+    lastX = cx;
+    lastY = cy;
+    lastZ = cz;
+    inHigh.fill(0);
+    const ranked = slices
+      .map((sl) => ({
+        sl,
+        d: Math.hypot(cx - sl.x, cy - sl.y, cz - sl.z) - sl.r,
+      }))
+      .sort((a, b) => a.d - b.d);
+    let w = 0;
+    for (const { sl, d } of ranked) {
+      if (d > HIGH_DIST) break;
+      for (let i = 0; i < sl.count && w < HIGH_CAP; i++) {
+        const id = sl.start + i;
+        remapData[w * 4] = id;
+        inHigh[id] = 1;
+        w++;
+      }
+      if (w >= HIGH_CAP) break;
+    }
+    high.count = w;
+    remapTex.needsUpdate = true;
 
-  const tintV = varying(e.z) as unknown as NF;
-  const trailV = varying(trailK.mul(wWing)) as unknown as NF;
-  const nl = normalLocal;
-  const nWv = varying(F.mul(nl.x).add(U2.mul(nl.y)).add(R2.mul(nl.z))) as unknown as NV3;
-  const colsN = float(pack.cols);
-  const rowsN = float(pack.rows);
-  const tileI = rC.w;
-  const rowF = tileI.div(colsN).floor();
-  const colF = tileI.sub(rowF.mul(colsN));
-  const uTile = uv().x.mul(0.992).add(0.004);
-  const vTile = uv().y.mul(0.992).add(0.004);
-  const skinUvV = varying(vec2(uTile.add(colF).div(colsN), vTile.add(rowF).div(rowsN)));
-  let col = texture(skinAtlas, skinUvV).xyz.mul(tintV) as unknown as NV3;
-  const nW = nWv.normalize().toVar();
-  const sd = env.sunDir;
-  const lam = nW.x.mul(sd.x).add(nW.y.mul(sd.y)).add(nW.z.mul(sd.z));
-  const wrap = lam.mul(0.5).add(0.5);
-  col = col.mul(wrap.mul(0.42).add(0.58)) as unknown as NV3;
-  const spec = wrap.mul(wrap).mul(wrap).mul(0.1);
-  col = col.add(vec3(spec, spec.mul(0.95), spec.mul(0.88))) as unknown as NV3;
-  const rim = wrap.oneMinus().mul(trailV).mul(0.16);
-  col = col.add(vec3(rim.mul(0.9), rim.mul(0.72), rim.mul(0.5))) as unknown as NV3;
-  col = col.mul(env.nightK.mul(0.55).oneMinus()) as unknown as NV3;
-  const faceV = varying(wBeak.mul(0.38).add(wEye.mul(0.55))) as unknown as NF;
-  col = col.mul(faceV.add(1)) as unknown as NV3;
-  mat.colorNode = col;
+    let lw = 0;
+    for (const { sl, d } of ranked) {
+      for (let i = 0; i < sl.count; i++) {
+        const id = sl.start + i;
+        if (inHigh[id] && d < 48) continue;
+        lowRemapData[lw * 4] = id;
+        lw++;
+      }
+    }
+    low.count = lw;
+    lowRemapTex.needsUpdate = true;
+  };
 
-  const mesh = new InstancedMesh(geo, mat, n);
-  mesh.count = n;
-  mesh.frustumCulled = false;
-  mesh.castShadow = false;
-  mesh.receiveShadow = false;
-  mesh.userData.skinAtlas = skinAtlas;
-  return mesh;
+  return { high, low, update };
 }
-
 // ---------------------------------------------------------------------------
 // 鸟群光柱信标(按种类配色,锚定聚集点)
 // ---------------------------------------------------------------------------
@@ -3053,19 +3205,53 @@ function createBeacons(env: EnvState, flocks: FlockCfg[]): Mesh {
   return mesh;
 }
 
+export type BirdFlocksSys = {
+  group: Group;
+  emitters: BirdFlockEmitter[];
+  update: (camera: PerspectiveCamera) => void;
+};
+
+function flocksToEmitters(flocks: FlockCfg[]): BirdFlockEmitter[] {
+  return flocks.map((sc, i) => ({
+    id: i,
+    speciesId: sc.spec.id,
+    habitat: sc.spot.habitat,
+    count: sc.count,
+    nocturnal: sc.spec.night,
+    kinematics: {
+      ox: sc.spot.x,
+      oy: sc.y,
+      oz: sc.spot.z,
+      rx: sc.rx,
+      rz: sc.rz,
+      angSpeed: sc.angSpeed,
+      phase: sc.phase,
+      behavior: sc.behavior,
+      aux0: sc.aux0,
+      aux1: sc.aux1,
+      bobAmp: sc.bobAmp,
+      rotC: Math.cos(sc.rot),
+      rotS: Math.sin(sc.rot),
+    },
+  }));
+}
+
 export function createBirdFlocks(
   tex: WorldTextures,
   env: EnvState,
   fields: WorldFields,
   params: Pick<RegionParams, "lat" | "lon" | "timeOfDay">,
-): Group {
+): BirdFlocksSys {
   const group = new Group();
+  const idle: BirdFlocksSys = { group, emitters: [], update: () => undefined };
   const spots = pickBirdSpots(fields);
-  if (spots.length === 0) return group;
+  if (spots.length === 0) return idle;
   const climate = sampleClimate(fields, params.lat, params.lon, env);
   const flocks = buildFlocks(spots, climate, makeRng((fields.seed ^ 20260819) >>> 0));
-  if (flocks.length === 0) return group;
-  group.add(createBirdMesh(tex, env, flocks));
+  if (flocks.length === 0) return idle;
+  const layers = createBirdMesh(tex, env, flocks);
+  group.add(layers.low);
+  group.add(layers.high);
   group.add(createBeacons(env, flocks.filter((s) => s.beacon)));
-  return group;
+  return { group, emitters: flocksToEmitters(flocks), update: layers.update };
 }

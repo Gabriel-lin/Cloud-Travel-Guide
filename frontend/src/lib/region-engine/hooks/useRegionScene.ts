@@ -75,9 +75,11 @@ export function useRegionScene(
       report,
     )
       .then((w) => {
-        if (!cancelled) {
-          setState((prev) => (prev.key === bootKey ? { ...prev, world: w } : prev));
+        if (cancelled) {
+          w.dispose();
+          return;
         }
+        setState((prev) => (prev.key === bootKey ? { ...prev, world: w } : prev));
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -101,6 +103,12 @@ export function useRegionScene(
   useEffect(() => {
     world?.env.setTimeOfDay(params.timeOfDay);
   }, [world, params.timeOfDay]);
+
+  useEffect(() => {
+    return () => {
+      world?.dispose();
+    };
+  }, [world]);
 
   return { progress, world, error };
 }
