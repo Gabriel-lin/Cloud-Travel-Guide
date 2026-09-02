@@ -1,7 +1,7 @@
 /**
  * 高度场 boot 流水线编排。
  *
- * WebGPU:细节放大 → 水力/热力侵蚀 → 河道刻蚀 → 湿度扩散 → 生物群系分类(全 TSL compute)
+ * WebGPU:细节放大 → 水力/热力侵蚀 → 河道/湖床刻蚀(seed 微地貌) → 湿度扩散 → 生物群系分类(全 TSL compute)
  *        → 一次性回读 CPU 镜像(供贴地探针/散布/水面)。
  * WebGL2:CPU 等价路径(跳过侵蚀)。
  * 最后 CPU 侧计算水面高度(河:刻蚀深度回填;湖:连通域找岸线水位)。
@@ -9,6 +9,7 @@
 
 import type { Renderer, StorageBufferAttribute } from "three/webgpu";
 import { EROSION_ITERS } from "../const";
+import { buildLakeBowl } from "../geo/rasterize";
 import type { DemGrid, RegionMasks, WorldFields } from "../types";
 import { runBiomeClassify } from "./biome";
 import {
@@ -63,8 +64,45 @@ function suppressField(masks: RegionMasks): Float32Array {
   return out;
 }
 
+/** 哨兵感知 3×3 均值平滑(仅河道内 texel 参与):抹平交汇台阶与断面噪声 */
+function smoothLevel(vals: Float32Array, res: number, rounds: number): void {
+  let src: Float32Array = vals;
+  let dst: Float32Array = new Float32Array(vals.length);
+  for (let r = 0; r < rounds; r++) {
+    for (let y = 0; y < res; y++) {
+      for (let x = 0; x < res; x++) {
+        const i = y * res + x;
+        if (!Number.isFinite(src[i] as number)) {
+          dst[i] = src[i] as number;
+          continue;
+        }
+        let acc = 0;
+        let cnt = 0;
+        for (let oz = -1; oz <= 1; oz++) {
+          for (let ox = -1; ox <= 1; ox++) {
+            const cx = Math.min(Math.max(x + ox, 0), res - 1);
+            const cy = Math.min(Math.max(y + oz, 0), res - 1);
+            const v = src[cy * res + cx] as number;
+            if (Number.isFinite(v)) {
+              acc += v;
+              cnt++;
+            }
+          }
+        }
+        dst[i] = cnt > 0 ? acc / cnt : (src[i] as number);
+      }
+    }
+    const t = src;
+    src = dst;
+    dst = t;
+  }
+  if (src !== vals) vals.set(src);
+}
+
 /**
- * 水面高度:河 = 刻蚀后高度 + 80% 刻蚀深度(水填谷);
+ * 水面高度:
+ * 河 = 未刻蚀地表 − 20% 中心刻深 —— 横断面统一水位(不再随剖面呈槽形,
+ *     水线自然落在抛物线河床坡上),再经均值平滑抹掉交汇处的台阶;
  * 湖 = 连通域内原始地面最低点 − 0.25(BFS 洪泛)。
  */
 function computeWaterY(
@@ -77,12 +115,22 @@ function computeWaterY(
   const n = res * res;
   const waterY = new Float32Array(n).fill(WATER_NONE);
 
+  const level = new Float32Array(n).fill(Infinity);
   for (let i = 0; i < n; i++) {
     const p = masks.riverProfile[i] as number;
-    if (p > 0.03) {
-      const y = (heights[i] as number) + (carveDepth[i] as number) * 0.8;
-      // 只有水面高于河床才算有水
-      if (y > (heights[i] as number) + 0.05) waterY[i] = y;
+    const d = masks.riverDepth[i] as number;
+    if (p > 0.03 && d > 0.01) {
+      // heights + carveDepth 恰好还原未刻蚀地表
+      level[i] = (heights[i] as number) + (carveDepth[i] as number) - 0.2 * d;
+    }
+  }
+  smoothLevel(level, res, 2);
+  for (let i = 0; i < n; i++) {
+    const p = masks.riverProfile[i] as number;
+    const lv = level[i] as number;
+    // 只有水位高于河床才算有水(岸坡肩部与浅缘自然露出)
+    if (p > 0.03 && Number.isFinite(lv) && lv > (heights[i] as number) + 0.05) {
+      waterY[i] = lv;
     }
   }
 
@@ -145,6 +193,7 @@ export async function runWorldPipeline(opts: {
   for (let i = 0; i < n; i++) demRel[i] = (dem.heights[i] as number) - dem.minH;
   const suppress = suppressField(masks);
   const moistSrc = moistureSource(masks);
+  const lakeBowl = buildLakeBowl(masks.water, res);
 
   let heights: Float32Array;
   let carveDepth: Float32Array;
@@ -170,9 +219,13 @@ export async function runWorldPipeline(opts: {
       renderer,
       ero.eroded,
       masks.riverProfile,
-      masks.riverHash,
-      masks.water,
+      masks.riverDepth,
+      lakeBowl,
+      masks.flowX,
+      masks.flowZ,
       res,
+      size,
+      seed,
     );
     onProgress?.(0.72, "moisture");
     const moistBuf = await runMoisture(renderer, moistSrc, ero.water, res);
@@ -208,7 +261,7 @@ export async function runWorldPipeline(opts: {
     onProgress?.(0.1, "amplify(cpu)");
     const amped = amplifyCpu(demRel, suppress, res, size, seed);
     onProgress?.(0.4, "rivers(cpu)");
-    const carved = carveCpu(amped, masks);
+    const carved = carveCpu(amped, masks, lakeBowl, res, size, seed);
     heights = carved.height;
     carveDepth = carved.carveDepth;
     onProgress?.(0.6, "moisture(cpu)");

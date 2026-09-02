@@ -1,7 +1,7 @@
 "use client";
 
 import { PerformanceMonitor, Stats } from "@react-three/drei";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Canvas, events as createPointerEvents, useFrame, useThree } from "@react-three/fiber";
 import { AlertTriangle } from "lucide-react";
 import {
   Component,
@@ -13,11 +13,12 @@ import {
   useState,
 } from "react";
 import type { PerspectiveCamera } from "three";
-import { WebGPURenderer } from "three/webgpu";
+import { WebGPURenderer, type Renderer, type RenderPipeline } from "three/webgpu";
 
 import { useAppLocale } from "@/hooks/use-app-locale";
 import { WalkFlyRig } from "@/lib/region-engine/camera/WalkFlyRig";
 import { useRegionScene } from "@/lib/region-engine/hooks/useRegionScene";
+import { createRegionPostFX } from "@/lib/region-engine/render/postfx";
 import type {
   BootProgress,
   RegionParams,
@@ -36,16 +37,51 @@ export type RouteSceneProps = {
   onStateChange?: (patch: Partial<RouteToolbarState>) => void;
 };
 
+/**
+ * R3F Canvas 在 WebGPU 异步 init / HMR 卸载后仍可能把 null 传给 events.connect,
+ * 默认实现会直接 target.addEventListener → 整页 Uncaught TypeError。
+ */
+function createSafePointerEvents(
+  store: Parameters<typeof createPointerEvents>[0],
+) {
+  const manager = createPointerEvents(store);
+  const connect = manager.connect?.bind(manager);
+  manager.connect = (target) => {
+    if (!target) return;
+    connect?.(target);
+  };
+  return manager;
+}
+
 /** WebGPU 优先,初始化失败自动回退 WebGL2(三方案见 docs/regional-terrain-engine-plan.md) */
 async function createRenderer(props: unknown): Promise<WebGPURenderer> {
   const base = props as ConstructorParameters<typeof WebGPURenderer>[0];
+  const requiredLimits: Record<string, number> = {};
   try {
-    const renderer = new WebGPURenderer({ ...base, antialias: true });
+    const gpu = (
+      navigator as Navigator & {
+        gpu?: {
+          requestAdapter: () => Promise<{
+            limits: { maxStorageBuffersPerShaderStage: number };
+          } | null>;
+        };
+      }
+    ).gpu;
+    const adapter = await gpu?.requestAdapter();
+    const maxSb = adapter?.limits.maxStorageBuffersPerShaderStage ?? 0;
+    if (maxSb >= 12) {
+      requiredLimits.maxStorageBuffersPerShaderStage = Math.min(maxSb, 16);
+    }
+  } catch {
+    /* adapter 查询失败则走默认限额 */
+  }
+  try {
+    const renderer = new WebGPURenderer({ ...base, antialias: false, requiredLimits });
     await renderer.init();
     return renderer;
   } catch (err) {
     console.warn("[region-engine] WebGPU unavailable, falling back to WebGL2", err);
-    const renderer = new WebGPURenderer({ ...base, antialias: true, forceWebGL: true });
+    const renderer = new WebGPURenderer({ ...base, antialias: false, forceWebGL: true });
     await renderer.init();
     return renderer;
   }
@@ -88,7 +124,9 @@ function SceneContent({ params, onProgress, onRigMode }: SceneContentProps) {
   }, [onRigMode]);
 
   useEffect(() => {
-    const rig = new WalkFlyRig(camera as PerspectiveCamera, gl.domElement);
+    const dom = gl.domElement;
+    if (!dom) return;
+    const rig = new WalkFlyRig(camera as PerspectiveCamera, dom);
     rig.onModeChange = (mode) => rigModeCb.current(mode);
     rigRef.current = rig;
     return () => {
@@ -114,6 +152,12 @@ function SceneContent({ params, onProgress, onRigMode }: SceneContentProps) {
     rigRef.current?.setMode(params.mode);
   }, [params.mode, world]);
 
+  // 浏览器自动播放策略:首次指针/键盘手势解锁 AudioContext
+  useEffect(() => {
+    if (!world) return;
+    return world.sound.installUnlock(gl.domElement);
+  }, [world, gl]);
+
   useFrame((rootState, dt) => {
     rigRef.current?.update(dt);
     world?.update(rootState.camera as PerspectiveCamera, dt);
@@ -125,8 +169,40 @@ function SceneContent({ params, onProgress, onRigMode }: SceneContentProps) {
       <primitive object={world.group} />
       {/* 雾挂到 scene.fog(R3F 声明式 attach,昼夜色由 world.update 每帧驱动) */}
       <primitive object={world.fog} attach="fog" />
+      <RegionPostFX />
     </>
   );
+}
+
+/** 全屏 FXAA + 近景反锐化;priority>0 接管 R3F 默认 render */
+function RegionPostFX() {
+  const gl = useThree((s) => s.gl);
+  const scene = useThree((s) => s.scene);
+  const camera = useThree((s) => s.camera);
+  const pipeRef = useRef<RenderPipeline | null>(null);
+
+  useEffect(() => {
+    try {
+      const pipe = createRegionPostFX(gl as unknown as Renderer, scene, camera);
+      pipeRef.current = pipe;
+      return () => {
+        pipe.dispose();
+        pipeRef.current = null;
+      };
+    } catch (err) {
+      console.warn("[region-engine] postfx skipped", err);
+      pipeRef.current = null;
+      return undefined;
+    }
+  }, [gl, scene, camera]);
+
+  useFrame(() => {
+    const pipe = pipeRef.current;
+    if (pipe) pipe.render();
+    else gl.render(scene, camera);
+  }, 1);
+
+  return null;
 }
 
 const BOOT_LABEL_KEYS: Record<BootProgress["status"], string> = {
@@ -203,6 +279,7 @@ export function RouteScene({
         <Canvas
           // WebGPURenderer(异步 init)为 R3F v9 支持的 promise 工厂
           gl={createRenderer as never}
+          events={createSafePointerEvents}
           shadows
           dpr={[0.75, dprMax]}
           camera={{ fov: 62, near: 0.2, far: 30000, position: [140, 220, 300] }}
