@@ -1,29 +1,48 @@
 /**
  * 环境粒子 kernel(全 GPU 顶点驱动,零逐帧 CPU):
  *
- * - 萤火虫(夜):散布器选出的水边/植被聚集点周围游曳;每只有独立的
- *   Lissajous 轨道(相位/速度/半径哈希)+ 呼吸式明暗;加色混合软光点。
+ * - 萤火虫(夜):厘米级针尖光点(真实腹部发光 1–2 cm + 薄晕)。参数打进
+ *   浮点纹理,InstancedMesh 按 instanceIndex 读取 —— 一次绘制、零逐帧上传。
+ *   点光只作很弱的环境填充;光柱从虫群上方升起便于定位。
  * - 花粉/飘叶(昼):相机环形域内随风平流 + 缓慢下沉,mod 环绕永续。
  */
 
-import { InstancedBufferAttribute, InstancedMesh, PlaneGeometry } from "three";
-import { AdditiveBlending } from "three";
+import {
+  AdditiveBlending,
+  BufferAttribute,
+  BufferGeometry,
+  ClampToEdgeWrapping,
+  DataTexture,
+  DoubleSide,
+  FloatType,
+  Group,
+  InstancedBufferAttribute,
+  InstancedMesh,
+  Mesh,
+  NearestFilter,
+  PlaneGeometry,
+  PointLight,
+  RGBAFormat,
+} from "three";
 import { MeshBasicNodeMaterial } from "three/webgpu";
 import {
+  attribute,
   cameraPosition,
   clamp,
   cos,
-  float,
   instancedBufferAttribute,
+  instanceIndex,
+  ivec2,
   mix,
   positionLocal,
   sin,
   smoothstep,
+  textureLoad,
   uv,
   vec2,
   vec3,
 } from "three/tsl";
-import type { NV4 } from "../gpu/tsl-types";
+import type { NF, NV3, NV4 } from "../gpu/tsl-types";
 import type { EnvState } from "../render/env";
 import {
   sampleFloatBilinear,
@@ -32,8 +51,23 @@ import {
 } from "../render/fields";
 import { makeRng } from "../veg/treeBuilder";
 
-const FIREFLY_COUNT = 1400;
 const AMBIENT_COUNT = 900;
+/** 实际点亮场景的点光上限(WebGL 回退路径灯光预算紧) */
+const FIREFLY_LIGHT_MAX = 12;
+/** 成群投放的聚集点上限 */
+const FIREFLY_SWARM_MAX = 24;
+/** 每群只数(小光点,靠数量而不是体积出群感) */
+const FIREFLY_PER_SPOT = 96;
+/** 虫群水平半径 m */
+const FIREFLY_SPREAD = 7.5;
+/** 参数纹理列数:0=位置/尺寸 1=相位/速度/半径/闪烁 */
+const FIREFLY_ROWS = 2;
+/** 萤火虫黄绿:与粒子 colorNode 一致 */
+const FIREFLY_RGB: [number, number, number] = [0.75, 1.0, 0.32];
+const FIREFLY_HEX = 0xbfff52;
+/** 光柱从虫群上方升起,避免加色柱体把粒子洗掉 */
+const BEAM_HEIGHT = 52;
+const BEAM_LIFT = 4.6;
 
 /** 相机朝向广告牌小方片 */
 function billboardQuad(
@@ -46,65 +80,224 @@ function billboardQuad(
   return quad;
 }
 
-export function createFireflies(env: EnvState, spots: Float32Array): InstancedMesh {
+export type FireflySys = {
+  group: Group;
+  update: (nightK: number, time: number) => void;
+};
+
+/**
+ * 萤火虫:InstancedMesh + 参数纹理(与鱼群同一套 WebGPU 实例路径)。
+ * 几何只有一张单位方片;每只的位置/闪烁全在 GPU 读纹理,零逐帧 CPU。
+ * 视觉:4–8 cm 世界尺寸、针尖内核 + 薄晕,占空比偏低的真实闪烁。
+ */
+function createFireflyMesh(env: EnvState, spots: Float32Array): InstancedMesh | null {
   const nSpots = spots.length / 4;
-  const count = nSpots > 0 ? FIREFLY_COUNT : 0;
-  const instA = new InstancedBufferAttribute(new Float32Array(Math.max(count, 1) * 4), 4);
-  const instB = new InstancedBufferAttribute(new Float32Array(Math.max(count, 1) * 4), 4);
+  const nSwarms = Math.min(nSpots, FIREFLY_SWARM_MAX);
+  const count = nSwarms > 0 ? nSwarms * FIREFLY_PER_SPOT : 0;
+  if (count === 0) return null;
+
+  const data = new Float32Array(count * FIREFLY_ROWS * 4);
   const rng = makeRng(20260709);
   for (let i = 0; i < count; i++) {
-    const s = Math.floor(rng() * nSpots);
+    const s = Math.floor(i / FIREFLY_PER_SPOT);
     const ang = rng() * Math.PI * 2;
-    const rad = Math.sqrt(rng()) * 22;
-    instA.array[i * 4] = (spots[s * 4] as number) + Math.cos(ang) * rad;
-    instA.array[i * 4 + 1] = (spots[s * 4 + 1] as number) + 0.6 + rng() * 2.4;
-    instA.array[i * 4 + 2] = (spots[s * 4 + 2] as number) + Math.sin(ang) * rad;
-    instA.array[i * 4 + 3] = 0.05 + rng() * 0.05; // 尺寸
-    instB.array[i * 4] = rng(); // 相位
-    instB.array[i * 4 + 1] = 0.4 + rng() * 0.9; // 速度
-    instB.array[i * 4 + 2] = 1.5 + rng() * 3.5; // 游曳半径
-    instB.array[i * 4 + 3] = rng(); // 闪烁去相关
+    const rad = Math.sqrt(rng()) * FIREFLY_SPREAD;
+    const o = i * FIREFLY_ROWS * 4;
+    data[o] = (spots[s * 4] as number) + Math.cos(ang) * rad;
+    data[o + 1] = (spots[s * 4 + 1] as number) + 0.9 + rng() * 1.7;
+    data[o + 2] = (spots[s * 4 + 2] as number) + Math.sin(ang) * rad;
+    data[o + 3] = 0.045 + rng() * 0.04; // 4.5–8.5 cm
+    data[o + 4] = rng();
+    data[o + 5] = 0.35 + rng() * 0.7;
+    data[o + 6] = 0.35 + rng() * 0.9;
+    data[o + 7] = rng();
   }
+
+  const pTex = new DataTexture(data, FIREFLY_ROWS, count, RGBAFormat, FloatType);
+  pTex.magFilter = NearestFilter;
+  pTex.minFilter = NearestFilter;
+  pTex.wrapS = ClampToEdgeWrapping;
+  pTex.wrapT = ClampToEdgeWrapping;
+  pTex.generateMipmaps = false;
+  pTex.needsUpdate = true;
+
+  const quad = new PlaneGeometry(1, 1);
+  quad.deleteAttribute("normal");
 
   const mat = new MeshBasicNodeMaterial();
   mat.transparent = true;
   mat.blending = AdditiveBlending;
   mat.depthWrite = false;
+  mat.depthTest = true;
+  mat.side = DoubleSide;
   mat.fog = false;
+  mat.toneMapped = false;
 
-  const a = instancedBufferAttribute(instA) as unknown as NV4;
-  const b = instancedBufferAttribute(instB) as unknown as NV4;
+  const fp = (row: number) =>
+    textureLoad(pTex, ivec2(row, instanceIndex.toInt())).toVar() as unknown as NV4;
+  const a = fp(0);
+  const b = fp(1);
   const t = env.time.mul(b.y).add(b.x.mul(43));
-  // Lissajous 游曳轨道(每只不同)
   const orbit = vec3(
     sin(t).mul(b.z),
-    sin(t.mul(1.7).add(b.w.mul(9))).mul(0.7),
+    sin(t.mul(1.7).add(b.w.mul(9))).mul(0.45),
     cos(t.mul(0.83)).mul(b.z),
   );
   const base = a.xyz.add(orbit).toVar();
-  const toCam = cameraPosition.sub(base);
-  const fwd = vec3(toCam.x, 0, toCam.z).normalize();
+  const toCam = cameraPosition.sub(base).toVar();
+  const dist = toCam.length().max(0.4);
+  const xzLen = toCam.xz.length().max(0.001);
+  const fwd = vec3(toCam.x, 0, toCam.z).div(xzLen);
   const right = vec3(fwd.z.negate(), 0, fwd.x);
   const up = vec3(0, 1, 0);
-  // 呼吸式明暗(0.6 Hz 左右,占空比偏灭)
-  const pulse = smoothstep(0.35, 0.9, sin(env.time.mul(1.9).add(b.w.mul(37))).mul(0.5).add(0.5))
+  // 真实萤火虫:大部分时间熄灭,短暂点亮
+  const pulse = smoothstep(0.58, 0.9, sin(env.time.mul(1.45).add(b.w.mul(37))).mul(0.5).add(0.5))
     .mul(env.nightK)
     .toVar();
-  const sizeK = a.w.mul(pulse.mul(0.7).add(0.3));
+  // 近处保持厘米级;远处用距离下限避免亚像素消失(仍远小于旧版 1 m 光球)
+  const sizeK = a.w.max(dist.mul(0.0009)).mul(pulse.mul(0.15).add(0.85));
   mat.positionNode = base
     .add(right.mul(positionLocal.x.mul(sizeK)))
     .add(up.mul(positionLocal.y.mul(sizeK)));
 
   const d = uv().sub(0.5).length();
-  const glow = smoothstep(0.5, 0.06, d);
-  mat.colorNode = vec3(0.75, 1.0, 0.32).mul(glow).mul(pulse).mul(3.2);
+  const core = smoothstep(0.09, 0.0, d);
+  const halo = smoothstep(0.48, 0.08, d);
+  const glow = core.add(halo.mul(halo).mul(0.32)).toVar();
+  const tint = mix(vec3(FIREFLY_RGB[0], FIREFLY_RGB[1], FIREFLY_RGB[2]), vec3(1.0, 0.98, 0.62), core);
+  mat.colorNode = tint.mul(glow).mul(pulse).mul(5.5);
   mat.opacityNode = glow.mul(pulse);
 
-  const mesh = new InstancedMesh(billboardQuad(instA, instB), mat, Math.max(count, 1));
+  const mesh = new InstancedMesh(quad, mat, count);
   mesh.count = count;
   mesh.frustumCulled = false;
-  mesh.renderOrder = 8;
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  mesh.renderOrder = 32;
+  mesh.userData.pTex = pTex;
   return mesh;
+}
+
+/**
+ * 聚集点场景点光:照亮附近地形/植被,夜间才能看见虫群所在的那片绿晕。
+ * 只取权重最高的若干点,避免 WebGL 回退路径灯光溢出。
+ */
+function createFireflyLights(spots: Float32Array): PointLight[] {
+  const nSpots = spots.length / 4;
+  const n = Math.min(nSpots, FIREFLY_LIGHT_MAX);
+  const lights: PointLight[] = [];
+  for (let i = 0; i < n; i++) {
+    const w = spots[i * 4 + 3] as number;
+    const light = new PointLight(FIREFLY_HEX, 0, 16, 2);
+    light.position.set(
+      spots[i * 4] as number,
+      (spots[i * 4 + 1] as number) + 1.8,
+      spots[i * 4 + 2] as number,
+    );
+    light.castShadow = false;
+    light.userData.baseIntensity = 0.45 + w * 0.9;
+    light.userData.phase = i * 2.17;
+    lights.push(light);
+  }
+  return lights;
+}
+
+/**
+ * 夜间光柱信标:从虫群头顶升起(白热内核 + 萤火虫色外晕),与鱼/鸟信标
+ * 同一套加色混合。乘 nightK → 白天完全隐去;柱体抬到虫群上方,避免洗掉粒子。
+ */
+function createFireflyBeacons(env: EnvState, spots: Float32Array): Mesh | null {
+  const nSpots = Math.min(spots.length / 4, FIREFLY_SWARM_MAX);
+  if (nSpots <= 0) return null;
+
+  const pos: number[] = [];
+  const col: number[] = [];
+  const fad: number[] = [];
+  const idx: number[] = [];
+  const SEG = 12;
+  const [br, bg, bb] = FIREFLY_RGB;
+
+  const addCyl = (
+    cx: number,
+    cy: number,
+    cz: number,
+    r: number,
+    c: [number, number, number],
+    alpha: number,
+  ) => {
+    const v0 = pos.length / 3;
+    for (let k = 0; k <= SEG; k++) {
+      const a = (k / SEG) * Math.PI * 2;
+      const x = Math.cos(a);
+      const z = Math.sin(a);
+      pos.push(cx + x * r, cy, cz + z * r);
+      pos.push(cx + x * r * 0.5, cy + BEAM_HEIGHT, cz + z * r * 0.5);
+      col.push(c[0], c[1], c[2], c[0], c[1], c[2]);
+      fad.push(alpha, 0);
+    }
+    for (let k = 0; k < SEG; k++) {
+      const a = v0 + k * 2;
+      idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+    }
+  };
+
+  for (let i = 0; i < nSpots; i++) {
+    const x = spots[i * 4] as number;
+    const y = (spots[i * 4 + 1] as number) + BEAM_LIFT;
+    const z = spots[i * 4 + 2] as number;
+    addCyl(x, y, z, 0.1, [br * 0.35 + 0.55, bg * 0.35 + 0.55, bb * 0.35 + 0.55], 0.08);
+    addCyl(x, y, z, 0.42, [br * 1.05, bg * 1.05, bb * 1.05], 0.03);
+  }
+
+  const geo = new BufferGeometry();
+  geo.setAttribute("position", new BufferAttribute(new Float32Array(pos), 3));
+  geo.setAttribute("aCol", new BufferAttribute(new Float32Array(col), 3));
+  geo.setAttribute("aFade", new BufferAttribute(new Float32Array(fad), 1));
+  geo.setIndex(idx);
+
+  const mat = new MeshBasicNodeMaterial();
+  mat.transparent = true;
+  mat.blending = AdditiveBlending;
+  mat.depthWrite = false;
+  mat.depthTest = true;
+  mat.side = DoubleSide;
+  mat.fog = false;
+
+  const aCol = attribute("aCol") as unknown as NV3;
+  const aFade = attribute("aFade") as unknown as NF;
+  const pulse = sin(env.time.mul(1.7)).mul(0.5).add(0.5);
+  mat.colorNode = aCol;
+  mat.opacityNode = aFade.mul(pulse.mul(0.28).add(0.72)).mul(env.nightK);
+
+  const mesh = new Mesh(geo, mat);
+  mesh.frustumCulled = false;
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  mesh.renderOrder = 30;
+  return mesh;
+}
+
+export function createFireflies(env: EnvState, spots: Float32Array): FireflySys {
+  const group = new Group();
+  group.name = "fireflies";
+  group.frustumCulled = false;
+  const mesh = createFireflyMesh(env, spots);
+  if (mesh) group.add(mesh);
+  const lights = createFireflyLights(spots);
+  for (const light of lights) group.add(light);
+  const beacons = createFireflyBeacons(env, spots);
+  if (beacons) group.add(beacons);
+
+  return {
+    group,
+    update: (nightK: number, time: number) => {
+      group.visible = nightK > 0.03;
+      for (const light of lights) {
+        const pulse = 0.78 + 0.22 * Math.sin(time * 1.6 + (light.userData.phase as number));
+        light.intensity = (light.userData.baseIntensity as number) * nightK * pulse;
+      }
+    },
+  };
 }
 
 export function createAmbientParticles(env: EnvState): InstancedMesh {

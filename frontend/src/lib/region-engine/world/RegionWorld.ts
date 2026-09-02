@@ -145,7 +145,7 @@ export class RegionWorld {
       world.group.add(world.sky);
       world.group.add(createCloudLayer(env, fields.size));
       world.fireflies = createFireflies(env, scatter.fireflySpots);
-      world.group.add(world.fireflies);
+      world.group.add(world.fireflies.group);
       world.group.add(createAmbientParticles(env));
       world.group.add(createMarineSnow(tex, env));
       // 空中鸟群:按经纬度/栖息地/风雪/昼夜选种;羽色图集与鱼相同(每种多种子)
@@ -244,8 +244,8 @@ export class RegionWorld {
       waterDepth: depth,
     });
 
-    // 萤火虫只在夜间绘制
-    this.fireflies.visible = nightK > 0.03;
+    // 萤火虫粒子/点光/光柱只在夜间启用
+    this.fireflies.update(nightK, this.env.time.value as number);
     void this.tmpVec;
   }
 
