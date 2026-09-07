@@ -119,7 +119,7 @@ export class Grower {
 // 骨架生长
 // ---------------------------------------------------------------------------
 
-type Anchor = {
+export type Anchor = {
   pos: Vector3;
   quat: Quaternion;
   scale: number;
@@ -365,30 +365,14 @@ function growSkeleton(sp: SpeciesParams, rng: () => number): Skeleton {
 
   const ctx: GrowCtx = { sp, rng, lean, bias, age, branches: [], anchors: [], budget: 800 };
 
-  if (sp.culms) {
-    // 竹:丛生 culm,各自向外倾斜
-    const nCulms = Math.round(sp.culms[0] + rng() * (sp.culms[1] - sp.culms[0]));
-    for (let c = 0; c < nCulms; c++) {
-      const a = (c / nCulms) * Math.PI * 2 + rng() * 1.2;
-      const rad = 0.12 + rng() * 0.35;
-      const h = height * (0.75 + rng() * 0.35);
-      growBranch(ctx, {
-        level: 0,
-        basePos: new Vector3(Math.cos(a) * rad, 0, Math.sin(a) * rad),
-        baseDir: new Vector3(Math.cos(a) * (0.1 + rng() * 0.12), 1, Math.sin(a) * (0.1 + rng() * 0.12)).normalize(),
-        len: h,
-        baseR: h * sp.trunkRadiusK,
-      });
-    }
-  } else {
-    growBranch(ctx, {
-      level: 0,
-      basePos: new Vector3(0, 0, 0),
-      baseDir: new Vector3(lean.x * 0.7, 1, lean.z * 0.7).normalize(),
-      len: height,
-      baseR: height * sp.trunkRadiusK,
-    });
-  }
+  // 竹类(sp.culms)由 veg/bamboo.ts 的专用生成器负责;此处只处理单干树
+  growBranch(ctx, {
+    level: 0,
+    basePos: new Vector3(0, 0, 0),
+    baseDir: new Vector3(lean.x * 0.7, 1, lean.z * 0.7).normalize(),
+    len: height,
+    baseR: height * sp.trunkRadiusK,
+  });
 
   // 冠层包围(法线融合 + AO 用)
   let minY = Infinity;
@@ -564,8 +548,19 @@ export function leafRgb(
   ];
 }
 
+/** 叶宽轮廓(0..1):缺省对称 sin^shapePow;给定 peak 时为披针形(基部圆钝、先端渐尖到 0) */
+function leafWidthProfile(shape: LeafShape, s: number): number {
+  const peak = shape.peak;
+  if (peak === undefined) {
+    return Math.pow(Math.sin(Math.PI * Math.min(1, s * 0.86 + 0.07)), shape.shapePow);
+  }
+  if (s < peak) return Math.pow(Math.sin((Math.PI / 2) * (s / peak)), 0.6);
+  const k = (s - peak) / Math.max(1e-3, 1 - peak);
+  return Math.pow(Math.cos((Math.PI / 2) * Math.min(1, k)), 1.4);
+}
+
 /**
- * 单叶:沿 +z 的 2 行条带(每行 3 顶点),沿主脉折叠 + 向梢卷曲,带叶柄。
+ * 单叶:沿 +z 的 N 行条带(每行 3 顶点,默认 2 行),沿主脉折叠 + 向梢卷曲,带叶柄。
  * 局部空间:基部在原点,叶面朝 +y。
  */
 export function buildLeaf(
@@ -575,14 +570,14 @@ export function buildLeaf(
   rgb: [number, number, number],
   heightK: number,
 ): void {
-  const ROWS = 2;
+  const ROWS = Math.max(2, shape.rows ?? 2);
   const L = shape.len;
   const W = shape.width;
-  const stem = L * 0.14;
+  const stem = L * (shape.peak === undefined ? 0.14 : 0.06);
   const rows: number[][] = [];
   for (let i = 0; i <= ROWS; i++) {
     const s = i / ROWS;
-    const w = W * Math.pow(Math.sin(Math.PI * Math.min(1, s * 0.86 + 0.07)), shape.shapePow);
+    const w = W * leafWidthProfile(shape, s);
     const z = stem + s * (L - stem);
     const curlY = -shape.curl * s * s * L;
     const foldY = shape.fold * w;
@@ -700,19 +695,23 @@ const _q2 = new Quaternion();
 const Z_AXIS = new Vector3(0, 0, 1);
 
 /**
- * 在每个叶锚点放 alpha 测试卡片:长度轴沿锚点 +z(贴图 v 方向),
+ * 在每个叶锚点放 alpha 测试卡片并追加进 g:长度轴沿锚点 +z(贴图 v 方向),
  * 'lying' = 枝平面单面(法线 +y);'cross' 再加一张垂直面(立体感)。
  * 顶点色 = 逐锚点色相 tint × 冠内 AO;uv 指向 2×2 图集变体 tile。
+ * opts.aoK = 冠心最大压暗(默认 0.55;竹丛等非实心球冠取小值)。
  */
-function buildCards(
+export function appendCards(
+  g: Grower,
   anchors: readonly Anchor[],
   fol: FoliageParams,
   height: number,
   crownC: Vector3,
   crownR: number,
   rng: () => number,
-): BufferGeometry {
-  const g = new Grower();
+  opts: { aoK?: number } = {},
+): void {
+  const from = g.vertCount;
+  const aoK = opts.aoK ?? 0.55;
   const right = new Vector3();
   const upL = new Vector3();
   const out = new Vector3();
@@ -744,7 +743,7 @@ function buildCards(
     const dy = (a.pos.y - crownC.y) * invR;
     const dz = (a.pos.z - crownC.z) * invR;
     const d = Math.min(1, Math.hypot(dx, dy, dz));
-    const ao = 1 - 0.55 * (1 - d) * (1 - d);
+    const ao = 1 - aoK * (1 - d) * (1 - d);
     // 逐锚点色相 tint(图集已含叶色,这里乘性微调)
     const hue = a.hue * fol.hueVar;
     const tr = (1 + hue * 0.4) * ao;
@@ -775,8 +774,7 @@ function buildCards(
     }
   }
 
-  g.bendNormals(crownC, crownR, fol.normalBend, 0);
-  return g.build();
+  g.bendNormals(crownC, crownR, fol.normalBend, from);
 }
 
 // ---------------------------------------------------------------------------
@@ -814,7 +812,9 @@ export function buildTreeGeometry(sp: SpeciesParams, seed: number): BuiltTree {
 
   const crownC = new Vector3(0, skel.crownCenterY, 0);
   const crownR = Math.max(skel.crownRadius, (skel.height - skel.crownCenterY) * 0.9);
-  const cards = buildCards(skel.anchors, sp.foliage, skel.height, crownC, crownR, rng);
+  const cardsG = new Grower();
+  appendCards(cardsG, skel.anchors, sp.foliage, skel.height, crownC, crownR, rng);
+  const cards = cardsG.build();
 
   const bark = barkG.build();
   // 保留 uv:程序化树皮材质按周向/纵向 UV 做板条与纵裂(8 个 vertex buffer,与 cards 同级)

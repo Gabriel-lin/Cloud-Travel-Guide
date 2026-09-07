@@ -67,6 +67,17 @@ import {
 import type { RegionParams, WorldFields } from "../types";
 import { makeRng } from "../veg/treeBuilder";
 import type { BirdFlockEmitter } from "./birdKinematics";
+import {
+  paintBirdSkin,
+  skinSheen,
+  SKIN_LEG_V,
+  SKIN_RACHIS_K,
+  SKIN_SCAPULAR_UV,
+  SKIN_TILE_H,
+  SKIN_TILE_W,
+  SKIN_VARIANTS,
+  SKIN_ZONES,
+} from "./birdSkins";
 import type { BirdSpeciesId, Habitat } from "./birdSpecies";
 
 // ---------------------------------------------------------------------------
@@ -483,19 +494,18 @@ const OWL_I = 10;
 const SNOWY_I = 11;
 
 // ---------------------------------------------------------------------------
-// CPU 羽色图集(Cornell / Birds of the World 侧面作色,不采样照片)
-// 与 paintSkinTile(鱼)相同:种类给调色板,种子长出个体差异
-//   u: 0 喙 → 1 尾; v: 0~0.52 身体展开(0 背、0.5 腹),0.54~1.0 翼/尾羽(给飞羽更多 texel)
+// CPU 羽色图集:绘制见 birdSkins.ts。每个在场鸟种一个皮肤库(SKIN_VARIANTS 张
+// 个体变体 tile),同种个体从本种库取 tile —— 基本纹理一致、个体细节各异。
+//   u: 0 喙 → 1 尾; v: 0~0.52 身体展开(0 背、0.5 腹),0.54~0.975 翼/尾单片羽,>0.978 腿趾
 // ---------------------------------------------------------------------------
 
-const TILE_W = 128;
-const TILE_H = 96;
+const TILE_W = SKIN_TILE_W;
+const TILE_H = SKIN_TILE_H;
 const ATLAS_MAX = 4096;
 const MAX_BIRDS = 2048;
 /** 近景高模同时在场的上限;其余走低模,轮廓由后处理补 */
 const HIGH_CAP = 96;
 const HIGH_DIST = 80;
-const SKIN_TILES_MAX = 256;
 
 function packSkinAtlas(n: number): {
   cols: number;
@@ -524,863 +534,6 @@ function packSkinAtlas(n: number): {
   return { cols: 1, rows: 1, tw: 64, th: 40 };
 }
 
-function hash01(x: number, y: number, s: number): number {
-  const n = Math.sin(x * 127.1 + y * 311.7 + s * 17.17) * 43758.5453;
-  return n - Math.floor(n);
-}
-
-function vnoise(x: number, y: number, s: number): number {
-  const ix = Math.floor(x);
-  const iy = Math.floor(y);
-  const fx = x - ix;
-  const fy = y - iy;
-  const ux = fx * fx * (3 - 2 * fx);
-  const uy = fy * fy * (3 - 2 * fy);
-  const a = hash01(ix, iy, s);
-  const b = hash01(ix + 1, iy, s);
-  const c = hash01(ix, iy + 1, s);
-  const d = hash01(ix + 1, iy + 1, s);
-  return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy;
-}
-
-function fbmCpu(x: number, y: number, s: number): number {
-  return (
-    vnoise(x, y, s) * 0.5 +
-    vnoise(x * 2.1, y * 2.1, s + 3) * 0.25 +
-    vnoise(x * 4.3, y * 4.3, s + 7) * 0.125
-  );
-}
-
-type Rgb = [number, number, number];
-
-type PalKind =
-  | "sparrow"
-  | "swallow"
-  | "pigeon"
-  | "magpie"
-  | "crow"
-  | "mallard"
-  | "egret"
-  | "gull"
-  | "goose"
-  | "kestrel"
-  | "eagleowl"
-  | "snowy";
-
-type SkinPal = {
-  back: Rgb;
-  side: Rgb;
-  belly: Rgb;
-  wing: Rgb;
-  iris: Rgb;
-  beak: Rgb;
-  nU: number;
-  nV: number;
-  edge: number;
-  sheen: number;
-  kind: PalKind;
-};
-
-/** 羽色对照 Cornell All About Birds 鉴定页,只作绘制参考 */
-function skinPal(name: string): SkinPal {
-  switch (name) {
-    case "麻雀":
-      // 雄:灰冠、白颊、黑喉、栗色颈;雌:沙褐背纵纹。种子再分雌雄
-      return {
-        back: [0.42, 0.28, 0.14],
-        side: [0.62, 0.5, 0.32],
-        belly: [0.78, 0.72, 0.62],
-        wing: [0.38, 0.26, 0.14],
-        iris: [0.42, 0.28, 0.12],
-        beak: [0.46, 0.34, 0.22],
-        nU: 32,
-        nV: 14,
-        edge: 0.28,
-        sheen: 0.06,
-        kind: "sparrow",
-      };
-    case "家燕":
-      // 钢蓝背、锈红额喉、腹白至肉桂;深叉尾
-      return {
-        back: [0.12, 0.22, 0.42],
-        side: [0.18, 0.28, 0.48],
-        belly: [0.92, 0.78, 0.62],
-        wing: [0.1, 0.16, 0.32],
-        iris: [0.22, 0.14, 0.08],
-        beak: [0.08, 0.07, 0.06],
-        nU: 28,
-        nV: 12,
-        edge: 0.22,
-        sheen: 0.55,
-        kind: "swallow",
-      };
-    case "原鸽":
-      // 蓝灰体、颈紫绿虹彩、两道黑翼斑
-      return {
-        back: [0.38, 0.42, 0.48],
-        side: [0.48, 0.52, 0.58],
-        belly: [0.62, 0.64, 0.66],
-        wing: [0.34, 0.38, 0.44],
-        iris: [0.55, 0.28, 0.12],
-        beak: [0.22, 0.2, 0.18],
-        nU: 26,
-        nV: 12,
-        edge: 0.28,
-        sheen: 0.32,
-        kind: "pigeon",
-      };
-    case "喜鹊":
-      // 黑白分明,翼蓝绿虹彩,长尾铜绿
-      return {
-        back: [0.06, 0.06, 0.07],
-        side: [0.08, 0.08, 0.09],
-        belly: [0.94, 0.94, 0.92],
-        wing: [0.08, 0.16, 0.32],
-        iris: [0.22, 0.16, 0.08],
-        beak: [0.05, 0.05, 0.05],
-        nU: 24,
-        nV: 10,
-        edge: 0.18,
-        sheen: 0.62,
-        kind: "magpie",
-      };
-    case "乌鸦":
-      // 通体黑,紫绿虹彩
-      return {
-        back: [0.06, 0.06, 0.07],
-        side: [0.08, 0.08, 0.09],
-        belly: [0.1, 0.1, 0.11],
-        wing: [0.05, 0.05, 0.06],
-        iris: [0.18, 0.12, 0.06],
-        beak: [0.04, 0.04, 0.04],
-        nU: 20,
-        nV: 9,
-        edge: 0.16,
-        sheen: 0.48,
-        kind: "crow",
-      };
-    case "绿头鸭":
-      // 雄:金属绿头、白颈环、栗胸、灰胁;雌:褐斑
-      return {
-        back: [0.28, 0.32, 0.3],
-        side: [0.55, 0.58, 0.55],
-        belly: [0.72, 0.7, 0.62],
-        wing: [0.32, 0.34, 0.38],
-        iris: [0.28, 0.16, 0.08],
-        beak: [0.82, 0.68, 0.18],
-        nU: 18,
-        nV: 10,
-        edge: 0.42,
-        sheen: 0.28,
-        kind: "mallard",
-      };
-    case "白鹭":
-      // 通体白,黑喙
-      return {
-        back: [0.94, 0.95, 0.93],
-        side: [0.96, 0.97, 0.95],
-        belly: [0.97, 0.98, 0.96],
-        wing: [0.93, 0.94, 0.92],
-        iris: [0.42, 0.32, 0.12],
-        beak: [0.08, 0.08, 0.08],
-        nU: 16,
-        nV: 8,
-        edge: 0.12,
-        sheen: 0.18,
-        kind: "egret",
-      };
-    case "银鸥":
-      // 白头腹、灰背、翼尖黑白斑、黄喙
-      return {
-        back: [0.55, 0.58, 0.6],
-        side: [0.82, 0.84, 0.84],
-        belly: [0.94, 0.95, 0.94],
-        wing: [0.5, 0.54, 0.58],
-        iris: [0.55, 0.42, 0.14],
-        beak: [0.86, 0.68, 0.16],
-        nU: 18,
-        nV: 9,
-        edge: 0.2,
-        sheen: 0.14,
-        kind: "gull",
-      };
-    case "鸿雁":
-      // 灰褐背、乳白腹、额白、喙黑
-      return {
-        back: [0.42, 0.36, 0.28],
-        side: [0.58, 0.5, 0.4],
-        belly: [0.88, 0.86, 0.8],
-        wing: [0.38, 0.34, 0.28],
-        iris: [0.28, 0.18, 0.08],
-        beak: [0.1, 0.09, 0.08],
-        nU: 16,
-        nV: 9,
-        edge: 0.32,
-        sheen: 0.1,
-        kind: "goose",
-      };
-    case "红隼":
-      // 雄:灰头、栗背黑斑、浅腹黑纵斑;雌:通体栗褐横斑
-      return {
-        back: [0.62, 0.32, 0.14],
-        side: [0.72, 0.52, 0.32],
-        belly: [0.86, 0.72, 0.5],
-        wing: [0.48, 0.28, 0.14],
-        iris: [0.55, 0.38, 0.1],
-        beak: [0.42, 0.38, 0.34],
-        nU: 26,
-        nV: 12,
-        edge: 0.35,
-        sheen: 0.08,
-        kind: "kestrel",
-      };
-    case "雕鸮":
-      // 黄褐底、深褐横斑、面盘、耳簇、橙黄虹膜
-      return {
-        back: [0.42, 0.3, 0.16],
-        side: [0.58, 0.44, 0.24],
-        belly: [0.78, 0.68, 0.48],
-        wing: [0.36, 0.26, 0.14],
-        iris: [0.86, 0.55, 0.12],
-        beak: [0.22, 0.18, 0.12],
-        nU: 20,
-        nV: 14,
-        edge: 0.48,
-        sheen: 0.05,
-        kind: "eagleowl",
-      };
-    case "雪鸮":
-      // 白底,雌/幼鸟暗斑更多
-      return {
-        back: [0.92, 0.93, 0.94],
-        side: [0.94, 0.95, 0.95],
-        belly: [0.96, 0.97, 0.97],
-        wing: [0.9, 0.91, 0.92],
-        iris: [0.55, 0.38, 0.1],
-        beak: [0.12, 0.1, 0.08],
-        nU: 16,
-        nV: 10,
-        edge: 0.14,
-        sheen: 0.08,
-        kind: "snowy",
-      };
-    default:
-      return {
-        back: [0.4, 0.38, 0.32],
-        side: [0.55, 0.52, 0.45],
-        belly: [0.78, 0.76, 0.7],
-        wing: [0.35, 0.32, 0.28],
-        iris: [0.3, 0.2, 0.1],
-        beak: [0.15, 0.12, 0.1],
-        nU: 20,
-        nV: 10,
-        edge: 0.3,
-        sheen: 0.1,
-        kind: "sparrow",
-      };
-  }
-}
-
-function lerp3(a: Rgb, b: Rgb, t: number): Rgb {
-  const k = Math.min(Math.max(t, 0), 1);
-  return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
-}
-
-function paintSkinTile(
-  pix: Uint8Array,
-  atlasW: number,
-  ox: number,
-  oy: number,
-  tw: number,
-  th: number,
-  spec: SpeciesDef,
-  vs: number,
-): void {
-  const pal = skinPal(spec.name);
-  const sm = (t: number) => {
-    const c = Math.min(Math.max(t, 0), 1);
-    return c * c * (3 - 2 * c);
-  };
-  const clamp01 = (v: number) => Math.min(Math.max(v, 0), 1);
-  const mixN = (a: number, b: number, k: number) => a + (b - a) * clamp01(k);
-  const rng = makeRng(vs >>> 0);
-  const male = rng() > 0.46;
-  const nU0 = pal.nU * (0.55 + rng() * 0.9);
-  const nV0 = pal.nV * (0.6 + rng() * 0.8);
-  const uPh = (rng() - 0.5) * 0.22;
-  const tPh = (rng() - 0.5) * 0.18;
-  const stagK = 0.08 + rng() * 0.7;
-  const hueJ = (rng() - 0.5) * 0.24;
-  const lumJ = 0.82 + rng() * 0.38;
-  const fbmSu = 1.4 + rng() * 3.2;
-  const fbmSt = 0.8 + rng() * 2.6;
-  const fbmOff = rng() * 90;
-  const grainAmt = 0.07 + rng() * 0.16;
-  const edgeMul = 0.55 + rng() * 0.7;
-  const motThr = 0.34 + rng() * 0.28;
-  const bibK = 0.55 + rng() * 0.45;
-  const spotN = 4 + Math.floor(rng() * 10);
-  const snowyDens = male ? 0.18 : 0.42 + rng() * 0.12;
-  const magU0 = 0.14 + rng() * 0.16;
-  const magU1 = 0.56 + rng() * 0.24;
-  const magTd = 0.3 + rng() * 0.24;
-  const magScap = 0.3 + rng() * 0.18;
-  const swThroat = 0.16 + rng() * 0.1;
-  const swBand = 0.22 + rng() * 0.12;
-  const bellyShift = (rng() - 0.5) * 0.14;
-  const speckleThr = 0.58 + rng() * 0.22;
-
-  for (let y = 0; y < th; y++) {
-    for (let x = 0; x < tw; x++) {
-      const u = x / (tw - 1);
-      const fv = y / (th - 1);
-      let r = 0;
-      let g = 0;
-      let b = 0;
-
-      if (fv < 0.54) {
-        const t = Math.min(fv / 0.52, 1);
-        const td = Math.min(t, 1 - t) * 2;
-        const toSide = sm(td * 0.95);
-        const toBelly = sm((td - 0.28) / 0.52);
-        const colA = lerp3(pal.back, pal.side, toSide);
-        const col = lerp3(colA, pal.belly, toBelly);
-        r = col[0] + bellyShift * toBelly;
-        g = col[1] + bellyShift * 0.7 * toBelly;
-        b = col[2] + bellyShift * 0.45 * toBelly;
-
-        if (pal.kind === "sparrow") {
-          const streak =
-            sm((fbmCpu(u * 9.5, t * 2.2, fbmOff) - 0.46) / 0.1) *
-            sm((u - 0.16) / 0.08) *
-            sm((0.78 - u) / 0.1) *
-            sm(1.05 - td);
-          r = mixN(r, 0.12, streak * 0.72);
-          g = mixN(g, 0.08, streak * 0.72);
-          b = mixN(b, 0.05, streak * 0.72);
-          if (male) {
-            const crown = sm((0.2 - u) / 0.07) * sm((0.32 - td) / 0.2);
-            r = mixN(r, 0.42, crown * 0.7);
-            g = mixN(g, 0.44, crown * 0.7);
-            b = mixN(b, 0.46, crown * 0.7);
-            const cheek =
-              sm(1 - Math.abs(td - 0.5) * 1.75) * sm((u - 0.09) / 0.03) * sm((0.24 - u) / 0.08);
-            r = mixN(r, 0.94, cheek * 0.92);
-            g = mixN(g, 0.91, cheek * 0.92);
-            b = mixN(b, 0.86, cheek * 0.92);
-            const bib =
-              sm((0.32 - u) / 0.1) *
-              sm((u - 0.08) / 0.04) *
-              sm(1 - Math.abs(td - 0.78) * 2.6) *
-              bibK;
-            r = mixN(r, 0.06, bib);
-            g = mixN(g, 0.05, bib);
-            b = mixN(b, 0.04, bib);
-            const nape =
-              sm((u - 0.12) / 0.05) * sm((0.28 - u) / 0.06) * sm((0.28 - td) / 0.16);
-            r = mixN(r, 0.58, nape * 0.7);
-            g = mixN(g, 0.28, nape * 0.7);
-            b = mixN(b, 0.1, nape * 0.7);
-          }
-        } else if (pal.kind === "swallow") {
-          const throat = sm((swThroat + 0.06 - u) / 0.1) * sm((td - 0.32 - hueJ) / 0.42);
-          r = mixN(r, 0.66 + hueJ * 0.2, throat * 0.85);
-          g = mixN(g, 0.24 + lumJ * 0.04, throat * 0.85);
-          b = mixN(b, 0.14, throat * 0.85);
-          const band = sm(1 - Math.abs(u - swBand) * (11 + nU0 * 0.2)) * sm((td - 0.45) / 0.25);
-          r = mixN(r, 0.08, band * 0.7);
-          g = mixN(g, 0.16, band * 0.7);
-          b = mixN(b, 0.32 + hueJ * 0.12, band * 0.7);
-        } else if (pal.kind === "pigeon") {
-          const iri = sm((0.12 - Math.abs(u - (0.18 + uPh))) / 0.08) * sm((td - 0.25) / 0.5);
-          r = mixN(r, 0.42, iri * 0.55);
-          g = mixN(g, 0.22, iri * 0.35);
-          b = mixN(b, 0.48, iri * 0.7);
-        } else if (pal.kind === "magpie") {
-          const white =
-            sm((u - magU0) / 0.06) *
-            sm((magU1 - u) / 0.08) *
-            sm((td - magTd) / 0.22);
-          r = mixN(r, 0.92 + lumJ * 0.04, white);
-          g = mixN(g, 0.93 + lumJ * 0.03, white);
-          b = mixN(b, 0.9 + lumJ * 0.03, white);
-          const scap = sm(1 - Math.abs(u - magScap) * 6) * sm(1.05 - td) * 0.55;
-          r = mixN(r, 0.9, scap);
-          g = mixN(g, 0.91, scap);
-          b = mixN(b, 0.88, scap);
-        } else if (pal.kind === "crow") {
-          const iri = (fbmCpu(u * 3.2, t * 1.4, fbmOff) - 0.45) * pal.sheen;
-          r += iri * 0.12;
-          g += iri * 0.18;
-          b += iri * 0.28;
-        } else if (pal.kind === "mallard") {
-          if (male) {
-            const head = sm((0.2 - u) / 0.06);
-            r = mixN(r, 0.08, head);
-            g = mixN(g, 0.42, head);
-            b = mixN(b, 0.22, head);
-            const collar = sm(1 - Math.abs(u - 0.22) * 28);
-            r = mixN(r, 0.94, collar);
-            g = mixN(g, 0.94, collar);
-            b = mixN(b, 0.92, collar);
-            const breast = sm((u - 0.24) / 0.04) * sm((0.42 - u) / 0.06) * sm((td - 0.3) / 0.4);
-            r = mixN(r, 0.55, breast);
-            g = mixN(g, 0.22, breast);
-            b = mixN(b, 0.12, breast);
-          } else {
-            const mott =
-              sm((fbmCpu(u * 7.2, t * 5.4, fbmOff + 4) - motThr) / 0.12) * sm((u - 0.08) / 0.05);
-            r = mixN(r, 0.18, mott * 0.7);
-            g = mixN(g, 0.12, mott * 0.7);
-            b = mixN(b, 0.08, mott * 0.7);
-            const eyeL = sm(1 - Math.abs(t - 0.28) * 10) * sm((0.18 - u) / 0.08) * sm((u - 0.04) / 0.03);
-            r *= 1 - eyeL * 0.55;
-            g *= 1 - eyeL * 0.55;
-            b *= 1 - eyeL * 0.5;
-          }
-        } else if (pal.kind === "egret") {
-          const warm = 0.02 + hueJ * 0.04;
-          r += warm;
-          g += warm * 0.6;
-        } else if (pal.kind === "gull") {
-          const mantle = sm((u - 0.18) / 0.08) * sm((0.72 - u) / 0.1) * sm(1.05 - td);
-          r = mixN(r, pal.back[0], mantle * 0.85);
-          g = mixN(g, pal.back[1], mantle * 0.85);
-          b = mixN(b, pal.back[2], mantle * 0.85);
-        } else if (pal.kind === "goose") {
-          const blaze = sm((0.14 - u) / 0.05) * sm(1 - Math.abs(td - 0.35) * 2.2);
-          r = mixN(r, 0.94, blaze);
-          g = mixN(g, 0.94, blaze);
-          b = mixN(b, 0.92, blaze);
-        } else if (pal.kind === "kestrel") {
-          if (male) {
-            const cap = sm((0.2 - u) / 0.07) * sm(1.1 - td);
-            r = mixN(r, 0.42, cap * 0.75);
-            g = mixN(g, 0.46, cap * 0.75);
-            b = mixN(b, 0.5, cap * 0.75);
-          }
-          const spots =
-            sm((fbmCpu(u * 11, t * 8, fbmOff + 9) - 0.58) / 0.06) *
-            sm((u - 0.16) / 0.06) *
-            sm(1.02 - td * 0.4);
-          r = mixN(r, 0.08, spots);
-          g = mixN(g, 0.06, spots);
-          b = mixN(b, 0.04, spots);
-          const malar = sm(1 - Math.abs(t - 0.32) * 9) * sm((0.16 - u) / 0.07) * sm((u - 0.05) / 0.03);
-          r = mixN(r, 0.08, malar * 0.8);
-          g = mixN(g, 0.06, malar * 0.8);
-          b = mixN(b, 0.04, malar * 0.8);
-        } else if (pal.kind === "eagleowl") {
-          const bar = sm((Math.sin(t * 22 + u * 4) * 0.5 + 0.5 - 0.42) / 0.12) * sm((u - 0.12) / 0.06);
-          r = mixN(r, 0.18, bar * 0.55);
-          g = mixN(g, 0.12, bar * 0.55);
-          b = mixN(b, 0.06, bar * 0.55);
-          const disc = sm((0.2 - u) / 0.08) * sm(1 - Math.abs(td - 0.4) * 1.6);
-          r = mixN(r, 0.7, disc * 0.45);
-          g = mixN(g, 0.58, disc * 0.45);
-          b = mixN(b, 0.4, disc * 0.45);
-        } else if (pal.kind === "snowy") {
-          let sp = 0;
-          for (let k = 0; k < spotN; k++) {
-            const cu = 0.12 + hash01(k, vs, 3) * 0.78;
-            const ct = 0.08 + hash01(k, vs, 7) * 0.72;
-            const rad = 0.03 + hash01(k, vs, 11) * 0.06;
-            sp = Math.max(sp, sm((rad - Math.hypot(u - cu, (t - ct) * 0.8)) / 0.02));
-          }
-          r = mixN(r, 0.12, sp * snowyDens);
-          g = mixN(g, 0.12, sp * snowyDens);
-          b = mixN(b, 0.14, sp * snowyDens);
-        }
-
-        if (pal.sheen > 0.08) {
-          const sheen =
-            pal.sheen *
-            Math.max(sm(1 - Math.abs(t - 0.28) * 3.2), sm(1 - Math.abs(t - 0.72) * 3.2)) *
-            (0.55 + 0.45 * sm(fbmCpu(u * 3.1, t * 1.3, vs + 8) - 0.35));
-          r += sheen * 0.1;
-          g += sheen * 0.16;
-          b += sheen * 0.22;
-        }
-
-          // 廓羽:娉淮褰㈠線鍚庡彔,涓嶈鍥存垚鐜妭槌炵墖
-          if (pal.nU > 0 && u > 0.08 && u < 0.94) {
-            const isBack = td < 0.52;
-            const isBelly = td > 0.5;
-            const isHead = u < 0.22;
-            const zone = isBack && isBelly ? 0.7 : isBack ? sm((0.62 - td) / 0.22) : sm((td - 0.42) / 0.18);
-            const fade = sm((u - 0.08) / 0.05) * sm((0.94 - u) / 0.06) * zone;
-            const nU = nU0 * (isHead ? 1.7 : isBack && !isBelly ? 1.2 : 1.0);
-            const nV = nV0 * (isHead ? 1.35 : isBack && !isBelly ? 0.95 : 0.85);
-            const uS = u + uPh;
-            const tS = ((t + tPh) % 1 + 1) % 1;
-            let bestD = 9;
-            let secondD = 9;
-            let bestFx = 0;
-            let bestFy = 0;
-            let bestSeed = 0.5;
-            const row0 = Math.floor(tS * nV);
-            const col0 = Math.floor(uS * nU);
-            for (let dr = -1; dr <= 1; dr++) {
-              for (let dc = -1; dc <= 1; dc++) {
-                const row = row0 + dr;
-                const stagger = (row & 1) * stagK;
-                const col = col0 + dc;
-                const cx = (col + 0.5 + stagger) / nU;
-                const cy = (row + 0.5) / nV;
-                const dx = (uS - cx) * nU;
-                const dy = (tS - cy) * nV;
-                const tear = Math.max(dx, 0) * 0.42;
-                const d = Math.hypot(dx * (isHead ? 0.82 : 0.55) + tear, dy * (isHead ? 1.05 : 0.92));
-                if (d < bestD) {
-                  secondD = bestD;
-                  bestD = d;
-                  bestFx = dx;
-                  bestFy = dy;
-                  bestSeed = hash01(col, row, vs + 5);
-                } else if (d < secondD) {
-                  secondD = d;
-                }
-              }
-            }
-            const gap = Math.max(secondD - bestD, 1e-4);
-            const seam = sm(1 - gap * (isBelly ? 2.1 : 2.6));
-            const rear = sm((bestFx + 0.08) / 0.48);
-            const rachis = sm((0.08 - Math.abs(bestFy)) / 0.05) * sm((bestFx + 0.25) / 0.5) * fade;
-            const lift = sm((0.22 - bestFx) / 0.32) * (1 - seam) * fade;
-            const varK = (bestSeed - 0.5) * (isBelly ? 0.05 : 0.08) * fade;
-            r += varK + lift * (isBelly ? 0.08 : 0.06);
-            g += varK * 0.9 + lift * (isBelly ? 0.075 : 0.055);
-            b += varK * 0.8 + lift * (isBelly ? 0.055 : 0.04);
-            const barb =
-              0.5 +
-              0.5 *
-                Math.sin(
-                  (u * (isHead ? 42 : 28) + Math.abs(bestFy) * 3.2 + fbmCpu(u * 6, t * 5, fbmOff + 17) * 0.4) *
-                    Math.PI *
-                    2,
-                );
-            const vaneK = fade * (isBelly ? 0.07 : 0.12) * (1 - rachis) * sm(0.9 - bestD);
-            r *= 1 - barb * vaneK;
-            g *= 1 - barb * vaneK * 0.92;
-            b *= 1 - barb * vaneK * 0.82;
-            const k = seam * pal.edge * edgeMul * fade * (0.12 + 0.22 * rear);
-            r *= 1 - k * (isBelly ? 0.14 : 0.24);
-            g *= 1 - k * (isBelly ? 0.13 : 0.22);
-            b *= 1 - k * (isBelly ? 0.1 : 0.18);
-            r *= 1 - rachis * (isBelly ? 0.06 : 0.12);
-            g *= 1 - rachis * (isBelly ? 0.06 : 0.11);
-            b *= 1 - rachis * (isBelly ? 0.05 : 0.09);
-            const stria = 0.5 + 0.5 * Math.sin(u * 64 + t * 6 + bestSeed * 4);
-            r *= 1 - stria * fade * 0.045;
-            g *= 1 - stria * fade * 0.04;
-            b *= 1 - stria * fade * 0.032;
-          }
-
-        // 鍠?鍚荤(Cornell:麻雀绮楅敟鍠欍€侀弓缁嗛暱銆侀毤閽╁枡)
-        const beak = sm((0.11 - u) / 0.05);
-        if (beak > 0.02) {
-          r = mixN(r, pal.beak[0], beak);
-          g = mixN(g, pal.beak[1], beak);
-          b = mixN(b, pal.beak[2], beak);
-          const culmen = sm((0.012 - Math.abs(td - 0.18)) / 0.014) * beak;
-          r *= 1 - culmen * 0.38;
-          g *= 1 - culmen * 0.38;
-          b *= 1 - culmen * 0.32;
-          const cere = sm((u - 0.048) / 0.018) * sm((0.092 - u) / 0.028) * sm((0.42 - td) / 0.22);
-          r = mixN(r, pal.beak[0] * 0.35 + 0.52, cere * 0.78);
-          g = mixN(g, pal.beak[1] * 0.35 + 0.42, cere * 0.78);
-          b = mixN(b, pal.beak[2] * 0.35 + 0.32, cere * 0.78);
-          const nare =
-            sm((0.012 - Math.abs(u - 0.058)) / 0.008) *
-            sm((0.04 - Math.abs(td - 0.4)) / 0.03) *
-            beak;
-          r *= 1 - nare * 0.55;
-          g *= 1 - nare * 0.55;
-          b *= 1 - nare * 0.5;
-        }
-
-        // 鐪?深色眼圈 + 虹膜 + 瞳孔,鍑犱箮涓嶈宸╄啘
-        const eyeT = pal.kind === "eagleowl" || pal.kind === "snowy" ? 0.34 : 0.28;
-        const eyeU = pal.kind === "eagleowl" || pal.kind === "snowy" ? 0.13 : 0.1;
-        const eyeS = pal.kind === "eagleowl" || pal.kind === "snowy" ? 5.2 : 6.4;
-        for (const tc of [eyeT, 1 - eyeT]) {
-          const dx = (u - eyeU) * eyeS;
-          const dy = (t - tc) * 4.2;
-          const d = Math.hypot(dx, dy);
-          const orbit = sm((0.12 - d) / 0.03) * (1 - sm((0.08 - d) / 0.02));
-          r = mixN(r, pal.back[0] * 0.22, orbit);
-          g = mixN(g, pal.back[1] * 0.2, orbit);
-          b = mixN(b, pal.back[2] * 0.18, orbit);
-          const cream = sm((0.092 - d) / 0.018) * (1 - sm((0.058 - d) / 0.014));
-          r = mixN(r, 0.9, cream * 0.82);
-          g = mixN(g, 0.84, cream * 0.82);
-          b = mixN(b, 0.74, cream * 0.82);
-          const ring = sm((0.072 - d) / 0.01) * (1 - sm((0.05 - d) / 0.01));
-          r = mixN(r, 0.08, ring * 0.7);
-          g = mixN(g, 0.06, ring * 0.7);
-          b = mixN(b, 0.04, ring * 0.7);
-          const iris = sm((0.05 - d) / 0.012) * (1 - sm((0.02 - d) / 0.008));
-          r = mixN(r, pal.iris[0], iris);
-          g = mixN(g, pal.iris[1], iris);
-          b = mixN(b, pal.iris[2], iris);
-          const pupil = sm((0.018 - d) / 0.008);
-          r = mixN(r, 0.02, pupil);
-          g = mixN(g, 0.02, pupil);
-          b = mixN(b, 0.02, pupil);
-          const spark = sm((0.01 - Math.hypot(dx + 0.012, dy + 0.008)) / 0.006);
-          r = mixN(r, 1, spark * 0.7);
-          g = mixN(g, 0.96, spark * 0.7);
-          b = mixN(b, 0.9, spark * 0.7);
-        }
-
-        if (pal.kind === "sparrow") {
-          const lore =
-            sm(1 - Math.abs(td - 0.48) * 3.2) * sm((u - 0.088) / 0.018) * sm((0.155 - u) / 0.028);
-          r = mixN(r, 0.9, lore * 0.72);
-          g = mixN(g, 0.84, lore * 0.72);
-          b = mixN(b, 0.74, lore * 0.72);
-          if (male) {
-            const cheek2 =
-              sm(1 - Math.abs(td - 0.5) * 1.65) * sm((u - 0.1) / 0.022) * sm((0.23 - u) / 0.07);
-            r = mixN(r, 0.95, cheek2 * 0.88);
-            g = mixN(g, 0.92, cheek2 * 0.88);
-            b = mixN(b, 0.86, cheek2 * 0.88);
-          }
-        }
-
-        const grain = fbmCpu(u * fbmSu, t * fbmSt, fbmOff);
-        const gk = 1 + (grain - 0.5) * grainAmt * 1.5;
-        const speck =
-          sm((fbmCpu(u * 11.4, t * 7.2, fbmOff + 31) - speckleThr) / 0.07) *
-          sm((u - 0.12) / 0.08) *
-          sm((0.86 - u) / 0.1) *
-          0.12;
-        r = mixN(r, r * 0.52, speck);
-        g = mixN(g, g * 0.5, speck);
-        b = mixN(b, b * 0.48, speck);
-        r = (r + hueJ * 0.12) * lumJ * gk;
-        g = (g + hueJ * 0.04) * lumJ * gk;
-        b = (b - hueJ * 0.08) * lumJ * gk;
-      } else {
-        // 缈?灏惧浘鍧?u<0.66 覆羽叠鳞;u 0.66~0.84 次级飞羽;u>0.84 初级飞羽銆?
-        // 每根几何羽只采样銆屽崟鐗囩窘銆嶅尯鍩?涓嶅啀鎶婃暣缈?u 褰撳睍鍚戝垏鏉°€?
-        const chord = (fv - 0.54) / 0.46;
-        const lead = sm((0.2 - chord) / 0.14);
-        r = pal.wing[0];
-        g = pal.wing[1];
-        b = pal.wing[2];
-        r = mixN(r, pal.side[0] * 0.78 + 0.12, lead * 0.42);
-        g = mixN(g, pal.side[1] * 0.78 + 0.1, lead * 0.42);
-        b = mixN(b, pal.side[2] * 0.78 + 0.07, lead * 0.42);
-
-        if (u < 0.66) {
-          const root = sm((0.2 - u) / 0.14);
-          r = mixN(r, pal.side[0], root * 0.72);
-          g = mixN(g, pal.side[1], root * 0.72);
-          b = mixN(b, pal.side[2], root * 0.72);
-          r = mixN(r, pal.belly[0], root * lead * 0.35);
-          g = mixN(g, pal.belly[1], root * lead * 0.35);
-          b = mixN(b, pal.belly[2], root * lead * 0.35);
-          if (pal.kind === "sparrow") {
-            r = mixN(r, 0.72, lead * 0.38);
-            g = mixN(g, 0.56, lead * 0.38);
-            b = mixN(b, 0.34, lead * 0.38);
-          } else if (pal.kind === "pigeon") {
-            const bar =
-              sm(1 - Math.abs(chord - 0.38) * 11) + sm(1 - Math.abs(chord - 0.58) * 11);
-            r *= 1 - bar * 0.62;
-            g *= 1 - bar * 0.62;
-            b *= 1 - bar * 0.56;
-          } else if (pal.kind === "magpie") {
-            const patch = sm((0.42 - chord) / 0.18) * sm((u - 0.08) / 0.1);
-            r = mixN(r, 0.9 + lumJ * 0.04, patch);
-            g = mixN(g, 0.91 + lumJ * 0.03, patch);
-            b = mixN(b, 0.88 + lumJ * 0.03, patch);
-          } else if (pal.kind === "swallow") {
-            r = mixN(r, 0.1 + hueJ * 0.05, 0.55);
-            g = mixN(g, 0.16, 0.55);
-            b = mixN(b, 0.34 + hueJ * 0.08, 0.55);
-          } else if (pal.kind === "egret") {
-            r = 0.94 + hueJ * 0.02;
-            g = 0.95;
-            b = 0.93;
-          } else if (pal.kind === "goose") {
-            r = mixN(r, pal.belly[0], lead * 0.3);
-            g = mixN(g, pal.belly[1], lead * 0.3);
-            b = mixN(b, pal.belly[2], lead * 0.3);
-          } else if (pal.kind === "crow") {
-            r += pal.sheen * 0.1;
-            g += pal.sheen * 0.14;
-            b += pal.sheen * 0.22;
-          }
-
-          const nCU = 8 + Math.floor(hash01(vs, 1, 2) * 3);
-          const nCV = 5 + Math.floor(hash01(vs, 2, 4) * 2);
-          const uC = u * 1.15 + chord * 0.1 + uPh * 0.04;
-          const vC = chord * 1.05 + tPh * 0.03;
-          let cBest = 9;
-          let cSecond = 9;
-          let cDx = 0;
-          let cDy = 0;
-          let cSeed = 0.5;
-          const cRow0 = Math.floor(vC * nCV);
-          const cCol0 = Math.floor(uC * nCU);
-          for (let dr = -1; dr <= 1; dr++) {
-            for (let dc = -1; dc <= 1; dc++) {
-              const row = cRow0 + dr;
-              const col = cCol0 + dc;
-              const stagger = (row & 1) * 0.5;
-              const cx = (col + 0.5 + stagger) / nCU;
-              const cy = (row + 0.5) / nCV;
-              const dx = (uC - cx) * nCU;
-              const dy = (vC - cy) * nCV;
-              const d = Math.hypot(dx * 0.82, dy * 1.85 + 0.2);
-              if (d < cBest) {
-                cSecond = cBest;
-                cBest = d;
-                cDx = dx;
-                cDy = dy;
-                cSeed = hash01(col, row, vs + 11);
-              } else if (d < cSecond) {
-                cSecond = d;
-              }
-            }
-          }
-          const cSeam = sm(1 - Math.max(cSecond - cBest, 1e-4) * 3.8);
-          const cRear = sm((cDy + 0.12) / 0.5);
-          const cRach = sm((0.1 - Math.abs(cDx)) / 0.055);
-          const cLift = sm((0.14 - cDy) / 0.24) * (1 - cSeam);
-          r += (cSeed - 0.5) * 0.09 + cLift * 0.08;
-          g += (cSeed - 0.5) * 0.075 + cLift * 0.07;
-          b += (cSeed - 0.5) * 0.055 + cLift * 0.05;
-          r *= 1 - cRear * 0.2;
-          g *= 1 - cRear * 0.18;
-          b *= 1 - cRear * 0.14;
-          r *= 1 - cSeam * 0.34;
-          g *= 1 - cSeam * 0.32;
-          b *= 1 - cSeam * 0.26;
-          r *= 1 - cRach * 0.22;
-          g *= 1 - cRach * 0.22;
-          b *= 1 - cRach * 0.18;
-        } else {
-          const isPrim = u >= 0.84;
-          const vx = isPrim ? (u - 0.84) / 0.16 : (u - 0.66) / 0.18;
-          const rachX = 0.38;
-          const fromR = vx - rachX;
-          const ax = Math.abs(fromR);
-          const shaft = chord;
-          const taper = 0.28 + 0.72 * sm((0.97 - shaft) / 0.5);
-          const edge = sm((ax * (vx < rachX ? 1.55 : 0.92) - taper) / 0.1);
-          const rachis = sm((0.055 - ax) / 0.032) * sm((shaft - 0.03) / 0.08);
-          const outer = sm((rachX - vx) / 0.38);
-          const inner = sm((vx - rachX) / 0.62);
-          const lift = sm((0.22 - ax) / 0.28) * sm((0.68 - shaft) / 0.45);
-          const tipDark = sm((shaft - (isPrim ? 0.62 : 0.78)) / 0.22);
-          const fluff = sm((0.14 - shaft) / 0.1);
-          r = mixN(r, r * 0.72, outer * 0.35);
-          g = mixN(g, g * 0.74, outer * 0.35);
-          b = mixN(b, b * 0.7, outer * 0.35);
-          r = mixN(r, r * 1.08 + 0.04, inner * 0.28);
-          g = mixN(g, g * 1.06 + 0.03, inner * 0.28);
-          b = mixN(b, b * 1.03 + 0.02, inner * 0.28);
-          r += lift * 0.07;
-          g += lift * 0.06;
-          b += lift * 0.04;
-
-          if (pal.kind === "mallard" && !isPrim) {
-            const speculum = sm(1 - Math.abs(shaft - 0.48) * 4.2) * sm(1.05 - ax * 1.4);
-            r = mixN(r, 0.12, speculum);
-            g = mixN(g, 0.38, speculum);
-            b = mixN(b, 0.62, speculum);
-            const rim = sm(1 - Math.abs(shaft - 0.62) * 18) * speculum;
-            r = mixN(r, 0.94, rim);
-            g = mixN(g, 0.94, rim);
-            b = mixN(b, 0.9, rim);
-          } else if (pal.kind === "gull" && isPrim) {
-            const blackTip = sm((shaft - 0.58) / 0.18);
-            r = mixN(r, 0.05, blackTip);
-            g = mixN(g, 0.05, blackTip);
-            b = mixN(b, 0.06, blackTip);
-            const mirror = sm(1 - Math.abs(shaft - 0.7) * 14) * sm((shaft - 0.58) / 0.08);
-            r = mixN(r, 0.94, mirror);
-            g = mixN(g, 0.94, mirror);
-            b = mixN(b, 0.92, mirror);
-          } else if (pal.kind === "kestrel") {
-            const band = sm(1 - Math.abs(shaft - 0.72) * 9);
-            r = mixN(r, 0.07, band * 0.75);
-            g = mixN(g, 0.05, band * 0.75);
-            b = mixN(b, 0.03, band * 0.75);
-          } else if (pal.kind === "eagleowl") {
-            const bar = sm((Math.sin(shaft * 16) * 0.5 + 0.5 - 0.42) / 0.12) * inner;
-            r = mixN(r, 0.16, bar * 0.45);
-            g = mixN(g, 0.1, bar * 0.45);
-            b = mixN(b, 0.05, bar * 0.45);
-          } else if (pal.kind === "snowy") {
-            const bar =
-              sm((Math.sin(shaft * 11) * 0.5 + 0.5 - (male ? 0.7 : 0.48)) / 0.1) * sm(shaft);
-            r = mixN(r, 0.14, bar * 0.4);
-            g = mixN(g, 0.14, bar * 0.4);
-            b = mixN(b, 0.16, bar * 0.4);
-          } else if (pal.kind === "swallow") {
-            r = mixN(r, 0.09 + hueJ * 0.05, 0.7);
-            g = mixN(g, 0.14, 0.7);
-            b = mixN(b, 0.32 + hueJ * 0.1, 0.7);
-          } else if (pal.kind === "egret") {
-            r = 0.95 + hueJ * 0.015;
-            g = 0.96;
-            b = 0.94;
-          } else if (pal.kind === "magpie") {
-            r += pal.sheen * 0.1;
-            g += pal.sheen * 0.18;
-            b += pal.sheen * 0.3;
-          } else if (pal.kind === "crow") {
-            r += pal.sheen * 0.06 * (1 - tipDark);
-            g += pal.sheen * 0.1 * (1 - tipDark);
-            b += pal.sheen * 0.18 * (1 - tipDark);
-          }
-
-          const barb =
-            0.5 +
-            0.5 *
-              Math.sin(
-                (shaft * 13.5 + Math.abs(fromR) * 2.4 + fbmCpu(vx * 3, shaft * 2, fbmOff + 27) * 0.4) *
-                  Math.PI *
-                  2,
-              );
-          const vaneK = (1 - rachis) * (1 - fluff) * sm(taper - ax * 0.4);
-          r *= 1 - barb * 0.34 * vaneK;
-          g *= 1 - barb * 0.3 * vaneK;
-          b *= 1 - barb * 0.24 * vaneK;
-          r = mixN(r, pal.side[0] * 0.85 + 0.08, fluff * 0.45);
-          g = mixN(g, pal.side[1] * 0.85 + 0.06, fluff * 0.45);
-          b = mixN(b, pal.side[2] * 0.85 + 0.04, fluff * 0.45);
-          r *= 1 - edge * 0.7;
-          g *= 1 - edge * 0.64;
-          b *= 1 - edge * 0.55;
-          r *= 1 - rachis * 0.48;
-          g *= 1 - rachis * 0.44;
-          b *= 1 - rachis * 0.36;
-          r *= 1 - tipDark * 0.28;
-          g *= 1 - tipDark * 0.28;
-          b *= 1 - tipDark * 0.24;
-        }
-
-        const grain = fbmCpu(u * fbmSu * 0.55, chord * fbmSt * 0.8, fbmOff + 20);
-        const gk = 1 + (grain - 0.5) * grainAmt * 0.65;
-        r = (r + hueJ * 0.05) * lumJ * gk;
-        g = (g + hueJ * 0.015) * lumJ * gk;
-        b = (b - hueJ * 0.04) * lumJ * gk;
-      }
-
-      const o = ((oy + y) * atlasW + (ox + x)) * 4;
-      pix[o] = Math.round(clamp01(r) * 255);
-      pix[o + 1] = Math.round(clamp01(g) * 255);
-      pix[o + 2] = Math.round(clamp01(b) * 255);
-      pix[o + 3] = 255;
-    }
-  }
-}
-
 const MORPH_COLS = 3;
 
 function buildMorphTex(): DataTexture {
@@ -1397,7 +550,8 @@ function buildMorphTex(): DataTexture {
     };
     put(0, s.wingSpan, s.wingSweep, s.tailLen, s.tailFork);
     put(1, s.beakLen, s.wingChord, s.wingBow, s.night ? 1 : 0);
-    put(2, s.tailFan, s.flapAmp, s.glide, 0);
+    // w = 羽色金属光泽(shader 高光增强并偏蓝绿:燕/鹊/鸦/鸽颈/雄鸭头)
+    put(2, s.tailFan, s.flapAmp, s.glide, skinSheen(s.id));
   }
   const tex = new DataTexture(data, MORPH_COLS, n, RGBAFormat, FloatType);
   tex.magFilter = NearestFilter;
@@ -1653,6 +807,17 @@ function birdGeometry(detail: "high" | "low"): BufferGeometry {
   }
 
   // 鍗曠墖缇?鍓嶇窘鐗囩獎銆佸悗缇界墖瀹?缇借酱鐣ラ殕璧枫€傜考涓庡熬鍏辩敤銆?
+  // 皮肤 tile 翼/尾分区(与 birdSkins.SKIN_ZONES 对齐):每片羽把自身宽度映射到分区全宽
+  const CV0 = SKIN_ZONES.covert[0];
+  const CVW = SKIN_ZONES.covert[1] - SKIN_ZONES.covert[0];
+  const TL0 = SKIN_ZONES.tail[0];
+  const TLW = SKIN_ZONES.tail[1] - SKIN_ZONES.tail[0];
+  const SC0 = SKIN_ZONES.secondary[0];
+  const SCW = SKIN_ZONES.secondary[1] - SKIN_ZONES.secondary[0];
+  const PR0 = SKIN_ZONES.primary[0];
+  const PRW = SKIN_ZONES.primary[1] - SKIN_ZONES.primary[0];
+
+  // pinUv 给定时整片羽钉到一个体区 texel(肩羽取背侧体色 / 喜鹊白肩斑)
   const addFeather = (
     x0: number,
     y0: number,
@@ -1670,6 +835,7 @@ function birdGeometry(detail: "high" | "low"): BufferGeometry {
     form: "oval" | "lance" | "blade",
     winding: number,
     cols = 2,
+    pinUv?: readonly [number, number],
   ) => {
     const dirL = Math.hypot(dirX, dirZ) || 1;
     const fx = dirX / dirL;
@@ -1699,16 +865,16 @@ function birdGeometry(detail: "high" | "low"): BufferGeometry {
       const line: number[] = [];
       for (let c = 0; c <= cols; c++) {
         const tc = c / cols;
-        const o = (tc - 0.36) * 2 * w;
-        const rachisLift = Math.max(0, 1 - Math.abs(tc - 0.36) * 2.8) * 0.012;
+        const o = (tc - SKIN_RACHIS_K) * 2 * w;
+        const rachisLift = Math.max(0, 1 - Math.abs(tc - SKIN_RACHIS_K) * 2.8) * 0.012;
         const trailDrop = tc * tc * 0.006;
         line.push(
           push(
             x + qx * o,
             y + rachisLift - trailDrop,
             z + qz * o,
-            uvU0 + tc * uvUW,
-            0.555 + t * 0.42,
+            pinUv ? pinUv[0] : uvU0 + tc * uvUW,
+            pinUv ? pinUv[1] : 0.555 + t * 0.42,
             part,
             span0 + t * (span1 - span0),
           ),
@@ -1765,6 +931,7 @@ function birdGeometry(detail: "high" | "low"): BufferGeometry {
       form: "oval" | "lance" | "blade",
       yOff: number,
       cols = 2,
+      pinUv?: readonly [number, number],
     ) => {
       const az0 = Math.max(zRoot, 0.04);
       const az1 = Math.max(zEnd, az0 + 0.005);
@@ -1787,6 +954,7 @@ function birdGeometry(detail: "high" | "low"): BufferGeometry {
         form,
         sgn,
         cols,
+        pinUv,
       );
     };
 
@@ -1809,7 +977,7 @@ function birdGeometry(detail: "high" | "low"): BufferGeometry {
               x,
               yPlane + 0.005 + camber,
               sgn * az,
-              0.08 + chord * 0.48,
+              CV0 + 0.02 + chord * (CVW - 0.04),
               0.56 + ts * 0.22,
               part,
               sp,
@@ -1836,7 +1004,7 @@ function birdGeometry(detail: "high" | "low"): BufferGeometry {
       for (let i = 0; i < 4; i++) {
         const k = i / 3;
         const z = zSh + 0.02 + k * (zWr - zSh);
-        place(z, 0.24, z + 0.012, 0.94, 0.058, spanOf(z), spanOf(z) + 0.16, 1, 0.66, 0.17, 2, "blade", -0.003, 2);
+        place(z, 0.24, z + 0.012, 0.94, 0.058, spanOf(z), spanOf(z) + 0.16, 1, SC0, SCW, 2, "blade", -0.003, 2);
       }
       const handLen = 0.15;
       for (let i = 0; i < 6; i++) {
@@ -1853,8 +1021,8 @@ function birdGeometry(detail: "high" | "low"): BufferGeometry {
           spanOf(zRoot),
           1,
           5,
-          0.84,
-          0.14,
+          PR0,
+          PRW,
           3,
           slot > 0.45 ? "lance" : "blade",
           -0.004,
@@ -1879,8 +1047,8 @@ function birdGeometry(detail: "high" | "low"): BufferGeometry {
         sp,
         sp + 0.04,
         part,
-        0.04,
-        0.48,
+        CV0,
+        CVW,
         2,
         "oval",
         sgn,
@@ -1888,10 +1056,10 @@ function birdGeometry(detail: "high" | "low"): BufferGeometry {
       );
     }
 
-    // 肩羽盖住背与翼根
+    // 肩羽盖住背与翼根:钉到体区背侧(体色;喜鹊此处为白肩斑)
     for (let i = 0; i < 5; i++) {
       const k = i / 4;
-      place(0.076 + k * 0.014, 0.06 + k * 0.05, 0.112 + k * 0.024, 0.58, 0.032, 0.02, 0.16, 1, 0.06, 0.52, 3, "oval", 0.01);
+      place(0.076 + k * 0.014, 0.06 + k * 0.05, 0.112 + k * 0.024, 0.58, 0.032, 0.02, 0.16, 1, CV0, CVW, 3, "oval", 0.01, 2, SKIN_SCAPULAR_UV);
     }
 
     // 小覆羽:略往后指,盖住翼膜
@@ -1900,7 +1068,7 @@ function birdGeometry(detail: "high" | "low"): BufferGeometry {
       const z = zSh + k * (zTip - zSh) * 0.93 + (i & 1 ? 0.005 : 0);
       const part = z < zWr ? 1 : 5;
       const sp = spanOf(z);
-      place(z, 0.04, z + 0.01, 0.36, 0.028, sp, sp + 0.07, part, 0.06, 0.52, 2, "oval", 0.0095, 2);
+      place(z, 0.04, z + 0.01, 0.36, 0.028, sp, sp + 0.07, part, CV0, CVW, 2, "oval", 0.0095, 2);
     }
 
     // 中覆羽:斜向后,叠上大覆羽根
@@ -1909,16 +1077,16 @@ function birdGeometry(detail: "high" | "low"): BufferGeometry {
       const z = zSh + 0.006 + k * (zTip - zSh) * 0.9 + (i & 1 ? 0.004 : -0.002);
       const part = z < zWr ? 1 : 5;
       const sp = spanOf(z);
-      place(z, 0.12, z + 0.01, 0.52, 0.032, sp, sp + 0.09, part, 0.08, 0.5, 3, "oval", 0.0065, 2);
+      place(z, 0.12, z + 0.01, 0.52, 0.032, sp, sp + 0.09, part, CV0, CVW, 3, "oval", 0.0065, 2);
     }
 
-    // 大覆羽:像缩短的飞羽,盖住后羽根
+    // 大覆羽:像缩短的飞羽,盖住后羽根(与次级飞羽共用分区)
     for (let i = 0; i < 10; i++) {
       const k = i / 9;
       const z = zSh + 0.008 + k * (zTip - zSh) * 0.88 + (i & 1 ? 0.004 : 0);
       const part = z < zWr + 0.015 ? 1 : 5;
       const sp = spanOf(z);
-      place(z, 0.22, z + 0.008, 0.76, 0.036, sp, sp + 0.12, part, 0.62, 0.2, 3, "blade", 0.0032, 3);
+      place(z, 0.22, z + 0.008, 0.76, 0.036, sp, sp + 0.12, part, SC0, SCW, 3, "blade", 0.0032, 3);
     }
 
     // 三级飞羽:璐磋韩鐨勫悗缂?叠在次级内侧
@@ -1935,8 +1103,8 @@ function birdGeometry(detail: "high" | "low"): BufferGeometry {
         0.06,
         0.2,
         1,
-        0.66,
-        0.16,
+        SC0,
+        SCW,
         3,
         "blade",
         sgn,
@@ -1958,8 +1126,8 @@ function birdGeometry(detail: "high" | "low"): BufferGeometry {
         spanOf(z),
         spanOf(z) + 0.14,
         1,
-        0.66,
-        0.17,
+        SC0,
+        SCW,
         3,
         "blade",
         -0.003 - i * 0.0004,
@@ -1981,8 +1149,8 @@ function birdGeometry(detail: "high" | "low"): BufferGeometry {
         0.44,
         0.54,
         5,
-        0.06,
-        0.5,
+        CV0,
+        CVW,
         2,
         "lance",
         sgn,
@@ -1994,7 +1162,7 @@ function birdGeometry(detail: "high" | "low"): BufferGeometry {
     for (let i = 0; i < 7; i++) {
       const k = i / 6;
       const z = zWr - 0.04 + k * 0.22 + (i & 1 ? 0.003 : 0);
-      place(z, 0.16, z + 0.008, 0.66, 0.034, spanOf(z), spanOf(z) + 0.1, 5, 0.62, 0.2, 3, "blade", 0.0035, 3);
+      place(z, 0.16, z + 0.008, 0.66, 0.034, spanOf(z), spanOf(z) + 0.1, 5, SC0, SCW, 3, "blade", 0.0035, 3);
     }
 
     // 初级飞羽:根扎进覆羽下;内侧密叠接次级
@@ -2013,8 +1181,8 @@ function birdGeometry(detail: "high" | "low"): BufferGeometry {
         spanOf(zRoot),
         1,
         5,
-        0.84,
-        0.14,
+        PR0,
+        PRW,
         4,
         slot > 0.45 ? "lance" : "blade",
         -0.004 - i * 0.00045,
@@ -2134,8 +1302,8 @@ function birdGeometry(detail: "high" | "low"): BufferGeometry {
         lobe * 0.25,
         lobe * 0.25,
         2,
-        0.1,
-        0.45,
+        TL0,
+        TLW,
         3,
         "oval",
         1,
@@ -2157,8 +1325,8 @@ function birdGeometry(detail: "high" | "low"): BufferGeometry {
         lobe * 0.22,
         lobe * 0.22,
         2,
-        0.12,
-        0.42,
+        TL0,
+        TLW,
         3,
         "oval",
         1,
@@ -2185,8 +1353,8 @@ function birdGeometry(detail: "high" | "low"): BufferGeometry {
         lobe,
         lobe,
         2,
-        0.14,
-        0.38,
+        TL0,
+        TLW,
         4,
         "blade",
         1,
@@ -2269,7 +1437,8 @@ function birdGeometry(detail: "high" | "low"): BufferGeometry {
     const ax = -0.058;
     const ay = -0.09;
     const az = sgn * 0.018;
-    addTube(hx, hy, hz, ax, ay, az, 0.009, 0.0055, 0.52, 0.58, 6, 4);
+    // 腿 / 趾钉到皮肤 tile 底部色块(u<0.5 趾、u>0.5 腿:白鹭黑腿黄趾)
+    addTube(hx, hy, hz, ax, ay, az, 0.009, 0.0055, 0.54, SKIN_LEG_V, 6, 4);
     const toes: [number, number, number][] = [
       [-0.042, -0.014, sgn * 0.011],
       [-0.05, -0.012, 0],
@@ -2277,7 +1446,7 @@ function birdGeometry(detail: "high" | "low"): BufferGeometry {
       [0.024, -0.01, sgn * -0.004],
     ];
     for (const [tdx, tdy, tdz] of toes) {
-      addTube(ax, ay, az, ax + tdx, ay + tdy, az + tdz, 0.0044, 0.002, 0.48, 0.62, 7, 3);
+      addTube(ax, ay, az, ax + tdx, ay + tdy, az + tdz, 0.0044, 0.002, 0.46, SKIN_LEG_V, 7, 3);
     }
   };
   if (high) {
@@ -2725,7 +1894,14 @@ function createBirdMesh(
     MAX_BIRDS,
   );
   const n = Math.max(total, 1);
-  const pack = packSkinAtlas(Math.min(n, SKIN_TILES_MAX));
+
+  // 皮肤库:每个在场鸟种 SKIN_VARIANTS 张个体变体 tile,同种个体只从本种库取
+  const bankOf = new Map<number, number>();
+  for (const sc of flocks) {
+    const si = Math.max(0, SPECIES.indexOf(sc.spec));
+    if (!bankOf.has(si)) bankOf.set(si, bankOf.size * SKIN_VARIANTS);
+  }
+  const pack = packSkinAtlas(Math.max(1, bankOf.size * SKIN_VARIANTS));
   const atlasW = pack.cols * pack.tw;
   const atlasH = pack.rows * pack.th;
   if (atlasW > ATLAS_MAX || atlasH > ATLAS_MAX) {
@@ -2733,6 +1909,22 @@ function createBirdMesh(
   }
   const pix = new Uint8Array(atlasW * atlasH * 4);
   const maxTiles = pack.cols * pack.rows;
+  for (const [si, start] of bankOf) {
+    const spec = SPECIES[si] as SpeciesDef;
+    for (let k = 0; k < SKIN_VARIANTS; k++) {
+      const tile = (start + k) % maxTiles;
+      paintBirdSkin(
+        pix,
+        atlasW,
+        (tile % pack.cols) * pack.tw,
+        Math.floor(tile / pack.cols) * pack.th,
+        pack.tw,
+        pack.th,
+        spec.id,
+        ((si + 1) * 7919 + (k + 1) * 104729 + 20260819) >>> 0,
+      );
+    }
+  }
 
   const ROWS = 9;
   const data = new Float32Array(n * ROWS * 4);
@@ -2771,20 +1963,8 @@ function createBirdMesh(
       const tint = 0.9 + rng() * 0.18;
       const hSpan = Math.max(spec.heightK[1] - spec.heightK[0], 0.05);
       const wSpan = Math.max(spec.widthK[1] - spec.widthK[0], 0.04);
-      const seed = ((fi + 1) * 104729 + (specIdx + 1) * 7919 + 20260819) >>> 0;
-      const tileIdx = fi % maxTiles;
-      if (fi < maxTiles) {
-        paintSkinTile(
-          pix,
-          atlasW,
-          (tileIdx % pack.cols) * pack.tw,
-          Math.floor(tileIdx / pack.cols) * pack.th,
-          pack.tw,
-          pack.th,
-          spec,
-          seed,
-        );
-      }
+      // 从本种皮肤库随机取一张个体变体
+      const tileIdx = ((bankOf.get(specIdx) ?? 0) + Math.floor(rng() * SKIN_VARIANTS)) % maxTiles;
       put(
         4,
         spec.heightK[0] - hSpan * 0.18 + rng() * hSpan * 1.36,
@@ -2797,7 +1977,8 @@ function createBirdMesh(
       put(6, spec.night ? 1 : 0, spec.beakLen, 0.35 + rng() * 0.7, spec.flapAmp * (0.82 + rng() * 0.36));
       const floorPad = 1.1 + len * 0.8;
       const ceilPad = spec.cruiseH[1] + 8 + rng() * 6;
-      put(7, floorPad, ceilPad, 0.7 + rng() * 0.5, 0.75 + rng() * 0.5);
+      // z/w:逐实例色相偏移(−1 冷 .. +1 暖)与饱和度(0.85..1.15)—— 同 tile 的个体也不完全相同
+      put(7, floorPad, ceilPad, rng() * 2 - 1, 0.85 + rng() * 0.3);
       put(8, Math.cos(sc.rot), Math.sin(sc.rot), 0.4 + rng() * 1.1, tileIdx);
       fi++;
     }
@@ -3046,13 +2227,29 @@ function createBirdMesh(
     const vTile = uv().y.mul(0.992).add(0.004);
     const skinUvV = varying(vec2(uTile.add(colF).div(colsN), vTile.add(rowF).div(rowsN)));
     let col = texture(skinAtlas, skinUvV).xyz.mul(tintV) as unknown as NV3;
+    // 逐实例色相 / 饱和度微调:同种基本纹理一致,每只略有差异
+    const hueV = varying(t7.z) as unknown as NF;
+    const satV = varying(t7.w) as unknown as NF;
+    col = col.mul(
+      vec3(hueV.mul(0.09).add(1), hueV.mul(0.02).add(1), hueV.mul(-0.09).add(1)),
+    ) as unknown as NV3;
+    const lumC = col.x.mul(0.3).add(col.y.mul(0.59)).add(col.z.mul(0.11));
+    col = mix(vec3(lumC, lumC, lumC), col, satV) as unknown as NV3;
     const nW = nWv.normalize().toVar();
     const sd = env.sunDir;
     const lam = nW.x.mul(sd.x).add(nW.y.mul(sd.y)).add(nW.z.mul(sd.z));
     const wrap = lam.mul(0.5).add(0.5);
     col = col.mul(wrap.mul(0.42).add(0.58)) as unknown as NV3;
-    const spec = wrap.mul(wrap).mul(wrap).mul(0.1);
-    col = col.add(vec3(spec, spec.mul(0.95), spec.mul(0.88))) as unknown as NV3;
+    // 高光:金属光泽种(燕/鹊/鸦/鸽)更强且偏蓝绿
+    const sheenV = varying(m2.w) as unknown as NF;
+    const spec = wrap.mul(wrap).mul(wrap).mul(sheenV.mul(0.45).add(0.1));
+    col = col.add(
+      vec3(
+        spec.mul(sheenV.mul(-0.35).add(1)),
+        spec.mul(sheenV.mul(0.1).add(0.95)),
+        spec.mul(sheenV.mul(0.5).add(0.88)),
+      ),
+    ) as unknown as NV3;
     const rim = wrap.oneMinus().mul(trailV).mul(0.16);
     col = col.add(vec3(rim.mul(0.9), rim.mul(0.72), rim.mul(0.5))) as unknown as NV3;
     col = col.mul(env.nightK.mul(0.55).oneMinus()) as unknown as NV3;
