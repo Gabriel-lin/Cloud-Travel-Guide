@@ -4,7 +4,8 @@
  * WALK 模式 —— 贴地 RPG 探索:重力(22 m/s²,游戏手感)、Space 跳跃(缓冲输入)、
  * Shift 疾跑、步频头部摆动/落地下沉弹簧/疾跑 FOV;
  * FLY 模式 —— 自由飞行:E 上升 / Q 下降、滚轮调速、Shift 加速。
- * `V` 切换两种模式;指针锁定鼠标视角(带 Chromium 解锁冷却处理)。
+ * `V` 切换 walk/fly(与工具栏第一/第三人称无关)。
+ * 第一人称:指针锁定鼠标视角;第三人称:按住拖动自由看,WASD 自由移动。
  *
  * 相机运动特效叠加在独立的逻辑位置(basePos)之上,getPose() 永远返回干净位姿。
  */
@@ -12,6 +13,9 @@
 import type { PerspectiveCamera } from "three";
 import { Vector3 } from "three";
 import type { SceneMode } from "../types";
+
+/** 工具栏视角:沉浸指针锁定 / 拖动自由观察 */
+export type CameraView = "first-person" | "third-person";
 
 const FORWARD = new Vector3();
 const RIGHT = new Vector3();
@@ -58,13 +62,19 @@ export class WalkFlyRig {
   speed = 24;
   enabled = true;
   groundProbe: GroundProbe | null = null;
-  /** 模式切换回调(V 键 → 工具栏同步) */
+  /** walk/fly 切换回调(不再驱动工具栏视角) */
   onModeChange: ((mode: SceneMode) => void) | null = null;
+  /** 自动导览:跳过 WASD/跳跃,仍允许 V;第一人称位姿由导航写入,第三人称只跟位置 */
+  guided = false;
 
-  private modeV: SceneMode = "fly";
+  private modeV: SceneMode = "walk";
+  private viewV: CameraView = "first-person";
   private keys = new Set<string>();
   private vel = new Vector3();
   private locked = false;
+  private dragging = false;
+  /** 第三人称导览相对路径的额外高度(米) */
+  guidedLift = 0;
   private basePos = new Vector3();
   private velY = 0;
   private grounded = false;
@@ -101,7 +111,7 @@ export class WalkFlyRig {
       }, delayMs);
     };
     const acquireLock = (): void => {
-      if (!this.enabled || this.locked) return;
+      if (!this.enabled || this.locked || this.viewV !== "first-person") return;
       clearRelock();
       const wait = unlockAt + LOCK_COOLDOWN_MS - performance.now();
       if (wait > 0) {
@@ -123,7 +133,7 @@ export class WalkFlyRig {
       }
     };
     const onClick = (): void => {
-      if (!this.enabled || this.locked) return;
+      if (!this.enabled || this.locked || this.viewV !== "first-person") return;
       lockIntentAt = performance.now();
       acquireLock();
     };
@@ -136,11 +146,37 @@ export class WalkFlyRig {
     const onLockError = (): void => {
       retryLock(Math.max(unlockAt + LOCK_COOLDOWN_MS - performance.now() + 60, 300));
     };
-    const onMouseMove = (e: MouseEvent): void => {
-      if (!this.locked) return;
-      this.yaw -= e.movementX * 0.0022;
-      this.pitch -= e.movementY * 0.0022;
+    const applyLookDelta = (dx: number, dy: number): void => {
+      this.yaw -= dx * 0.0022;
+      this.pitch -= dy * 0.0022;
       this.pitch = Math.max(-1.55, Math.min(1.55, this.pitch));
+    };
+    const onMouseMove = (e: MouseEvent): void => {
+      if (this.viewV === "third-person") {
+        if (!this.dragging) return;
+        applyLookDelta(e.movementX, e.movementY);
+        return;
+      }
+      if (!this.locked || this.guided) return;
+      applyLookDelta(e.movementX, e.movementY);
+    };
+    const onPointerDown = (e: PointerEvent): void => {
+      if (!this.enabled || this.viewV !== "third-person" || e.button !== 0) return;
+      this.dragging = true;
+      try {
+        dom.setPointerCapture(e.pointerId);
+      } catch {
+        /* 捕获失败仍靠 document mousemove */
+      }
+    };
+    const onPointerUp = (e: PointerEvent): void => {
+      if (e.button !== 0 && e.type !== "pointercancel") return;
+      this.dragging = false;
+      try {
+        if (dom.hasPointerCapture(e.pointerId)) dom.releasePointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
     };
     const onKeyDown = (e: KeyboardEvent): void => {
       const target = e.target as HTMLElement | null;
@@ -155,15 +191,27 @@ export class WalkFlyRig {
     const onKeyUp = (e: KeyboardEvent): void => {
       this.keys.delete(e.code);
     };
-    const onBlur = (): void => this.keys.clear();
+    const onBlur = (): void => {
+      this.keys.clear();
+      this.dragging = false;
+    };
     const onWheel = (e: WheelEvent): void => {
-      if (this.modeV !== "fly" || !this.locked) return;
+      if (this.guided && this.viewV === "third-person") {
+        e.preventDefault();
+        this.guidedLift = Math.min(280, Math.max(0, this.guidedLift - Math.sign(e.deltaY) * 5));
+        return;
+      }
+      if (this.modeV !== "fly" || this.guided) return;
+      if (this.viewV === "first-person" && !this.locked) return;
       e.preventDefault();
       this.speed *= Math.pow(1.15, -Math.sign(e.deltaY));
       this.speed = Math.min(2000, Math.max(0.5, this.speed));
     };
 
     dom.addEventListener("click", onClick);
+    dom.addEventListener("pointerdown", onPointerDown);
+    dom.addEventListener("pointerup", onPointerUp);
+    dom.addEventListener("pointercancel", onPointerUp);
     document.addEventListener("pointerlockchange", onLockChange);
     document.addEventListener("pointerlockerror", onLockError);
     document.addEventListener("mousemove", onMouseMove);
@@ -173,7 +221,11 @@ export class WalkFlyRig {
     dom.addEventListener("wheel", onWheel, { passive: false });
     this.disposers.push(() => {
       clearRelock();
+      this.dragging = false;
       dom.removeEventListener("click", onClick);
+      dom.removeEventListener("pointerdown", onPointerDown);
+      dom.removeEventListener("pointerup", onPointerUp);
+      dom.removeEventListener("pointercancel", onPointerUp);
       document.removeEventListener("pointerlockchange", onLockChange);
       document.removeEventListener("pointerlockerror", onLockError);
       document.removeEventListener("mousemove", onMouseMove);
@@ -194,18 +246,37 @@ export class WalkFlyRig {
     return this.modeV;
   }
 
+  get viewMode(): CameraView {
+    return this.viewV;
+  }
+
+  /** 工具栏第一/第三人称:只改观察方式,不改 walk/fly */
+  setViewMode(mode: CameraView): void {
+    if (mode === this.viewV) return;
+    this.viewV = mode;
+    this.dragging = false;
+    if (mode !== "first-person" && this.locked) {
+      document.exitPointerLock();
+    }
+    if (mode === "third-person" && this.guided && this.guidedLift < 1) {
+      this.guidedLift = 10;
+    }
+  }
+
   /** 切换 walk/fly:进 walk 吸附到脚下地形;离开 walk 剥离特效偏移 */
   setMode(mode: SceneMode): void {
     if (mode === this.modeV) return;
     if (mode === "walk") {
       if (!this.groundProbe) return;
-      this.basePos.copy(this.camera.position);
-      const g = this.groundProbe(this.basePos.x, this.basePos.z);
-      this.basePos.y = g.ground + EYE_HEIGHT;
-      this.velY = 0;
-      this.vel.set(0, 0, 0);
-      this.grounded = true;
-    } else {
+      if (!this.guided) {
+        this.basePos.copy(this.camera.position);
+        const g = this.groundProbe(this.basePos.x, this.basePos.z);
+        this.basePos.y = g.ground + EYE_HEIGHT;
+        this.velY = 0;
+        this.vel.set(0, 0, 0);
+        this.grounded = true;
+      }
+    } else if (!this.guided) {
       this.camera.position.copy(this.basePos);
       this.resetEffects();
     }
@@ -214,11 +285,33 @@ export class WalkFlyRig {
     this.camera.updateMatrixWorld();
   }
 
+  setGuided(on: boolean): void {
+    this.guided = on;
+    this.vel.set(0, 0, 0);
+    this.velY = 0;
+    this.jumpAt = -1;
+    this.resetEffects();
+    if (!on) {
+      this.basePos.copy(this.camera.position);
+      this.guidedLift = 0;
+    } else if (this.viewV === "third-person" && this.guidedLift < 1) {
+      this.guidedLift = 10;
+    }
+  }
+
   setPose(x: number, y: number, z: number, yaw: number, pitch: number): void {
     this.camera.position.set(x, y, z);
     this.basePos.copy(this.camera.position);
     this.yaw = yaw;
     this.pitch = pitch;
+    this.applyRotation(0);
+    this.camera.updateMatrixWorld();
+  }
+
+  /** 只写位置,保留当前 yaw/pitch(第三人称导览自由看) */
+  setPosition(x: number, y: number, z: number): void {
+    this.camera.position.set(x, y, z);
+    this.basePos.copy(this.camera.position);
     this.applyRotation(0);
     this.camera.updateMatrixWorld();
   }
@@ -244,8 +337,24 @@ export class WalkFlyRig {
 
   update(dt: number): void {
     if (!this.enabled) return;
+    if (this.guided) {
+      if (this.viewV === "third-person") this.updateGuidedLift(dt);
+      this.applyRotation(0);
+      this.camera.updateMatrixWorld();
+      return;
+    }
     if (this.modeV === "walk") this.updateWalk(dt);
     else this.updateFly(dt);
+  }
+
+  /** 第三人称导览:Q 降 / E 升,Shift 加速,不离开路径水平位置 */
+  private updateGuidedLift(dt: number): void {
+    let v = 0;
+    if (this.keys.has("KeyE")) v += 1;
+    if (this.keys.has("KeyQ")) v -= 1;
+    if (v === 0) return;
+    const speed = this.keys.has("ShiftLeft") || this.keys.has("ShiftRight") ? 48 : 16;
+    this.guidedLift = Math.min(280, Math.max(0, this.guidedLift + v * speed * dt));
   }
 
   private updateFly(dt: number): void {

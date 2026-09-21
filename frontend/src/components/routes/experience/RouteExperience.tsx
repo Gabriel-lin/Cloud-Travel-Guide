@@ -13,7 +13,7 @@ export type RouteExperienceProps = {
 };
 
 const INITIAL_STATE: RouteToolbarState = {
-  viewMode: "third-person",
+  viewMode: "first-person",
   pointerTool: "cursor",
   lighting: "day",
   autoTour: false,

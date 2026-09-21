@@ -23,6 +23,9 @@ import { createProjector } from "../geo/project";
 import { rasterizeMasks } from "../geo/rasterize";
 import { runWorldPipeline } from "../gpu/pipeline";
 import type { GroundProbe } from "../camera/WalkFlyRig";
+import { generateTour } from "../nav/generatePath";
+import { createPathRibbon, type PathRibbon } from "../nav/PathRibbon";
+import type { RegionTour } from "../nav/types";
 import { cloudShadowFactor, createCloudLayer } from "../render/clouds";
 import { EnvState } from "../render/env";
 import {
@@ -32,7 +35,7 @@ import {
 } from "../render/fields";
 import { createSkyDome, skyHorizonRgb } from "../render/skyAtmosphere";
 import { scatterWorld } from "../veg/scatter";
-import type { BootProgress, RegionParams, WorldFields } from "../types";
+import type { BootProgress, RegionParams, SceneMode, WorldFields } from "../types";
 import { BirdSoundSystem } from "../audio/birds/BirdSoundSystem";
 import { SoundDirector } from "../audio/SoundDirector";
 import { createBirdFlocks, type BirdFlocksSys } from "./BirdFlocks";
@@ -55,6 +58,8 @@ export class RegionWorld {
   readonly fog = new FogExp2(0xcdd8e4, 0.00016);
   readonly groundProbe: GroundProbe;
   readonly sound = new SoundDirector();
+  tour: RegionTour | null = null;
+  private pathRibbon: PathRibbon | null = null;
 
   private terrain!: TerrainTiles;
   private vegetation!: Vegetation;
@@ -184,12 +189,31 @@ export class RegionWorld {
           console.warn("[region-engine] outer apron unavailable", err);
         });
 
+      onProgress({ status: "building", value: 0.97, detail: "tour" });
+      try {
+        world.tour = generateTour(fields, osm.rivers, osm.buildings, scatter);
+        world.pathRibbon = createPathRibbon(world.tour, env);
+        world.pathRibbon.group.visible = false;
+        world.group.add(world.pathRibbon.group);
+      } catch (err) {
+        console.warn("[region-engine] tour path skipped", err);
+        world.tour = null;
+      }
+
       onProgress({ status: "ready", value: 1 });
       return world;
     } catch (err) {
       world.dispose();
       throw err;
     }
+  }
+
+  setTourVisible(v: boolean): void {
+    this.pathRibbon?.setVisible(v);
+  }
+
+  setTourMode(mode: SceneMode): void {
+    this.pathRibbon?.setMode(mode);
   }
 
   /** 出生点:区域中心地表(或水面)上方 */
@@ -253,5 +277,8 @@ export class RegionWorld {
     if (this.disposed) return;
     this.disposed = true;
     this.sound.dispose();
+    this.pathRibbon?.dispose();
+    this.pathRibbon = null;
+    this.tour = null;
   }
 }

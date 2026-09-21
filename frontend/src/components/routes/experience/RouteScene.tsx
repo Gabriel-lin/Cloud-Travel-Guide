@@ -6,7 +6,6 @@ import { AlertTriangle } from "lucide-react";
 import {
   Component,
   type ReactNode,
-  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -18,22 +17,19 @@ import { WebGPURenderer, type Renderer, type RenderPipeline } from "three/webgpu
 import { useAppLocale } from "@/hooks/use-app-locale";
 import { WalkFlyRig } from "@/lib/region-engine/camera/WalkFlyRig";
 import { useRegionScene } from "@/lib/region-engine/hooks/useRegionScene";
+import { AutoNavigator } from "@/lib/region-engine/nav/AutoNavigator";
 import { createRegionPostFX } from "@/lib/region-engine/render/postfx";
-import type {
-  BootProgress,
-  RegionParams,
-  SceneMode,
-} from "@/lib/region-engine/types";
+import type { BootProgress, RegionParams } from "@/lib/region-engine/types";
 import { cn } from "@/lib/utils";
 
-import type { RouteExperienceConfig, RouteToolbarState } from "./types";
+import type { RouteExperienceConfig, RouteToolbarState, RouteViewMode } from "./types";
 
 export type RouteSceneProps = {
   config: RouteExperienceConfig;
   state: RouteToolbarState;
   /** 当前站点下标（俯视图选中,场景加载该站点的真实地理区域） */
   activeStopIndex?: number;
-  /** 场景内交互(V 键切换模式)同步回工具栏 */
+  /** 场景内状态回写(昼夜等);walk/fly 由 V 键在相机内切换,不改工具栏视角 */
   onStateChange?: (patch: Partial<RouteToolbarState>) => void;
 };
 
@@ -106,28 +102,24 @@ class SceneErrorBoundary extends Component<
 
 type SceneContentProps = {
   params: RegionParams;
+  autoTour: boolean;
+  viewMode: RouteViewMode;
   onProgress: (p: BootProgress) => void;
-  onRigMode: (mode: SceneMode) => void;
 };
 
 /** Canvas 内部:boot 世界 + 相机 rig + 每帧推进 */
-function SceneContent({ params, onProgress, onRigMode }: SceneContentProps) {
+function SceneContent({ params, autoTour, viewMode, onProgress }: SceneContentProps) {
   const camera = useThree((s) => s.camera);
   const gl = useThree((s) => s.gl);
   const rigRef = useRef<WalkFlyRig | null>(null);
-  const rigModeCb = useRef(onRigMode);
+  const navRef = useRef<AutoNavigator | null>(null);
 
   const { world } = useRegionScene(params, onProgress);
-
-  useEffect(() => {
-    rigModeCb.current = onRigMode;
-  }, [onRigMode]);
 
   useEffect(() => {
     const dom = gl.domElement;
     if (!dom) return;
     const rig = new WalkFlyRig(camera as PerspectiveCamera, dom);
-    rig.onModeChange = (mode) => rigModeCb.current(mode);
     rigRef.current = rig;
     return () => {
       rig.dispose();
@@ -135,22 +127,49 @@ function SceneContent({ params, onProgress, onRigMode }: SceneContentProps) {
     };
   }, [camera, gl]);
 
-  // 世界就绪:安装贴地探针、出生位姿(中心上空俯瞰入场)
+  // 世界就绪:安装贴地探针、出生位姿
   useEffect(() => {
     const rig = rigRef.current;
     if (!world || !rig) return;
     rig.groundProbe = world.groundProbe;
+    rig.setViewMode(viewMode);
     const spawn = world.spawnPoint();
-    rig.setPose(spawn.x + 140, spawn.y + 220, spawn.z + 300, 0.42, -0.5);
+    if (viewMode === "first-person") {
+      rig.setMode("walk");
+      rig.setPose(spawn.x, spawn.y, spawn.z, 0.2, -0.08);
+    } else {
+      rig.setPose(spawn.x + 140, spawn.y + 220, spawn.z + 300, 0.42, -0.5);
+    }
+    navRef.current = world.tour ? new AutoNavigator(world.tour) : null;
     return () => {
       rig.groundProbe = null;
+      navRef.current = null;
+      world.setTourVisible(false);
     };
+    // 仅在世界重建时重置位姿;视角切换走下方 effect
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- viewMode 不触发重生
   }, [world]);
 
-  // 工具栏视角 → rig 模式(walk 需等待贴地探针)
   useEffect(() => {
-    rigRef.current?.setMode(params.mode);
-  }, [params.mode, world]);
+    rigRef.current?.setViewMode(viewMode);
+  }, [viewMode]);
+
+  // 自动导览:相机始终沿路径走;第三人称保留拖动看和高度调节
+  useEffect(() => {
+    const rig = rigRef.current;
+    const nav = navRef.current;
+    if (!world || !rig) return;
+    if (!autoTour || !nav) {
+      rig.setGuided(false);
+      nav?.stop();
+      world.setTourVisible(false);
+      return;
+    }
+    world.setTourVisible(true);
+    world.setTourMode(rig.mode);
+    rig.setGuided(true);
+    if (!nav.active) nav.start(rig.mode, rig.camera.position);
+  }, [autoTour, world]);
 
   // 浏览器自动播放策略:首次指针/键盘手势解锁 AudioContext
   useEffect(() => {
@@ -159,7 +178,17 @@ function SceneContent({ params, onProgress, onRigMode }: SceneContentProps) {
   }, [world, gl]);
 
   useFrame((rootState, dt) => {
-    rigRef.current?.update(dt);
+    const rig = rigRef.current;
+    const nav = navRef.current;
+    if (autoTour && rig?.guided && nav?.active) {
+      const freeLook = viewMode === "third-person";
+      if (freeLook) rig.update(dt);
+      nav.setMode(rig.mode);
+      nav.update(dt, rig, freeLook);
+      world?.setTourMode(rig.mode);
+    } else {
+      rig?.update(dt);
+    }
     world?.update(rootState.camera as PerspectiveCamera, dt);
   });
 
@@ -220,13 +249,13 @@ const BOOT_LABEL_KEYS: Record<BootProgress["status"], string> = {
  *
  * R3F Canvas + WebGPU(回退 WebGL2)渲染站点真实地理场景:
  * DEM 地形 + OSM 水系/建筑/土地利用 + 程序化植被/天空/云/粒子。
- * 工具栏映射:第一人称 → walk(贴地),第三人称 → fly;Sun/Moon → 昼夜。
+ * 工具栏第一/第三人称只改观察方式(指针锁定 vs 拖动自由看),与 V 键 walk/fly 无关。
+ * Sun/Moon → 昼夜。
  */
 export function RouteScene({
   config,
   state,
   activeStopIndex = 0,
-  onStateChange,
 }: RouteSceneProps) {
   const { t } = useAppLocale();
   const [progress, setProgress] = useState<BootProgress>({ status: "idle", value: 0 });
@@ -239,17 +268,10 @@ export function RouteScene({
       lat: stop?.coord.lat ?? 30.57,
       lon: stop?.coord.lon ?? 104.07,
       sizeKm: 4,
-      mode: state.viewMode === "first-person" ? "walk" : "fly",
+      mode: "walk",
       timeOfDay: state.lighting,
     }),
-    [stop, state.viewMode, state.lighting],
-  );
-
-  const handleRigMode = useCallback(
-    (mode: SceneMode) => {
-      onStateChange?.({ viewMode: mode === "walk" ? "first-person" : "third-person" });
-    },
-    [onStateChange],
+    [stop, state.lighting],
   );
 
   const booting = progress.status !== "ready" && progress.status !== "error";
@@ -271,7 +293,9 @@ export function RouteScene({
     <div
       className={cn(
         "absolute inset-0 z-0 overflow-hidden bg-surface-950",
-        state.pointerTool === "hand" ? "cursor-grab" : "cursor-default",
+        state.pointerTool === "hand" || state.viewMode === "third-person"
+          ? "cursor-grab"
+          : "cursor-default",
       )}
       data-view-mode={state.viewMode}
     >
@@ -291,8 +315,9 @@ export function RouteScene({
           >
             <SceneContent
               params={params}
+              autoTour={state.autoTour}
+              viewMode={state.viewMode}
               onProgress={setProgress}
-              onRigMode={handleRigMode}
             />
           </PerformanceMonitor>
           {process.env.NODE_ENV === "development" && <Stats />}

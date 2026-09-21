@@ -9,7 +9,7 @@
 import type { Coords, LandKind, OsmData, RegionMasks, RiverLine } from "../types";
 import { hash01 } from "./overpass";
 
-function maskFromPolys(rings: Coords[], res: number, size: number): Float32Array {
+export function rasterizeRings(rings: Coords[], res: number, size: number): Float32Array {
   const out = new Float32Array(res * res);
   if (rings.length === 0) return out;
   const canvas = new OffscreenCanvas(res, res);
@@ -192,7 +192,7 @@ export function rasterizeMasks(
     arr.push(poly.ring);
     byKind.set(poly.kind, arr);
   }
-  const get = (kind: LandKind) => maskFromPolys(byKind.get(kind) ?? [], res, size);
+  const get = (kind: LandKind) => rasterizeRings(byKind.get(kind) ?? [], res, size);
 
   const water = get("water");
   const forest = get("forest");
