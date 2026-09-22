@@ -13,16 +13,20 @@ import {
   Group,
   HemisphereLight,
   PerspectiveCamera,
+  Vector2,
   Vector3,
 } from "three";
 import type { Renderer } from "three/webgpu";
 import { DEFAULT_SIZE_KM } from "../const";
 import { fetchDem } from "../geo/terrarium";
 import { fetchOsm } from "../geo/overpass";
-import { createProjector } from "../geo/project";
+import { createProjector, type Projector } from "../geo/project";
 import { rasterizeMasks } from "../geo/rasterize";
 import { runWorldPipeline } from "../gpu/pipeline";
 import type { GroundProbe } from "../camera/WalkFlyRig";
+import { generateTour } from "../nav/generatePath";
+import { createPathRibbon, type PathRibbon } from "../nav/PathRibbon";
+import type { RegionTour } from "../nav/types";
 import { cloudShadowFactor, createCloudLayer } from "../render/clouds";
 import { EnvState } from "../render/env";
 import {
@@ -32,13 +36,20 @@ import {
 } from "../render/fields";
 import { createSkyDome, skyHorizonRgb } from "../render/skyAtmosphere";
 import { scatterWorld } from "../veg/scatter";
-import type { BootProgress, RegionParams, WorldFields } from "../types";
+import type { BootProgress, RegionParams, SceneMode, WorldFields } from "../types";
+import { BirdSoundSystem } from "../audio/birds/BirdSoundSystem";
+import { SoundDirector } from "../audio/SoundDirector";
+import { PickLayer } from "../pick/PickLayer";
+import type { WorldLandmark } from "../pick/landmarks";
+import type { PickedEntity } from "../pick/types";
+import { createBirdFlocks, type BirdFlocksSys } from "./BirdFlocks";
 import { createBuildings } from "./Buildings";
 import { createGrassRing } from "./GrassRing";
 import { createOuterApron } from "./OuterApron";
-import { createAmbientParticles, createFireflies } from "./Particles";
+import { createAmbientParticles, createFireflies, createMarineSnow } from "./Particles";
 import { TerrainTiles } from "./TerrainTiles";
 import { Vegetation } from "./Vegetation";
+import { createWaterFlora } from "./WaterFlora";
 import { createWaterSurface } from "./WaterSurface";
 
 export type ProgressFn = (p: BootProgress) => void;
@@ -50,6 +61,11 @@ export class RegionWorld {
   readonly env = new EnvState();
   readonly fog = new FogExp2(0xcdd8e4, 0.00016);
   readonly groundProbe: GroundProbe;
+  readonly projector: Projector;
+  readonly sound = new SoundDirector();
+  tour: RegionTour | null = null;
+  pickLayer: PickLayer | null = null;
+  private pathRibbon: PathRibbon | null = null;
 
   private terrain!: TerrainTiles;
   private vegetation!: Vegetation;
@@ -57,10 +73,13 @@ export class RegionWorld {
   private sun!: DirectionalLight;
   private hemi!: HemisphereLight;
   private fireflies!: ReturnType<typeof createFireflies>;
+  private birds: BirdFlocksSys | null = null;
   private tmpColor = new Color();
   private tmpVec = new Vector3();
+  private disposed = false;
 
-  private constructor(readonly fields: WorldFields) {
+  private constructor(readonly fields: WorldFields, projector: Projector) {
+    this.projector = projector;
     const { res, size } = fields;
     this.groundProbe = (x: number, z: number) => ({
       ground: sampleCpu(fields.heights, x, z, res, size),
@@ -106,65 +125,114 @@ export class RegionWorld {
 
     // 4. 散布 + 场景构建
     onProgress({ status: "building", value: 0.74, detail: "scatter" });
-    const world = new RegionWorld(fields);
-    const env = world.env;
-    env.setTimeOfDay(params.timeOfDay);
-    env.nightK.value = params.timeOfDay === "night" ? 1 : 0;
+    const world = new RegionWorld(fields, proj);
+    try {
+      const env = world.env;
+      env.setTimeOfDay(params.timeOfDay);
+      env.nightK.value = params.timeOfDay === "night" ? 1 : 0;
 
-    const scatter = scatterWorld(fields);
-    const tex = buildWorldTextures(fields);
+      const scatter = scatterWorld(fields);
+      const tex = buildWorldTextures(fields);
 
-    onProgress({ status: "building", value: 0.8, detail: "terrain" });
-    world.terrain = new TerrainTiles(tex, env, fields.heights, {
-      cloudShadow: cloudShadowFactor(env),
-    });
-    world.group.add(world.terrain.mesh);
-    world.group.add(createWaterSurface(tex, env));
-    world.group.add(createGrassRing(tex, env));
-
-    onProgress({ status: "building", value: 0.86, detail: "vegetation" });
-    world.vegetation = new Vegetation(renderer, env, fields, scatter);
-    await world.vegetation.init();
-    world.group.add(world.vegetation.group);
-
-    onProgress({ status: "building", value: 0.93, detail: "buildings" });
-    world.group.add(createBuildings(osm, fields, env));
-
-    // 天空/云/粒子/光照
-    world.sky = createSkyDome(env);
-    world.group.add(world.sky);
-    world.group.add(createCloudLayer(env, fields.size));
-    world.fireflies = createFireflies(env, scatter.fireflySpots);
-    world.group.add(world.fireflies);
-    world.group.add(createAmbientParticles(env));
-
-    world.sun = new DirectionalLight(0xffffff, 3.2);
-    world.sun.castShadow = true;
-    world.sun.shadow.mapSize.set(2048, 2048);
-    world.sun.shadow.camera.left = -SHADOW_RANGE;
-    world.sun.shadow.camera.right = SHADOW_RANGE;
-    world.sun.shadow.camera.top = SHADOW_RANGE;
-    world.sun.shadow.camera.bottom = -SHADOW_RANGE;
-    world.sun.shadow.camera.near = 1;
-    world.sun.shadow.camera.far = 900;
-    world.sun.shadow.bias = -0.0004;
-    world.sun.shadow.normalBias = 0.5;
-    world.group.add(world.sun);
-    world.group.add(world.sun.target);
-    world.hemi = new HemisphereLight(0xbfd4e8, 0x54503c, 0.55);
-    world.group.add(world.hemi);
-
-    // 外围裙带(真实卫星影像 + 粗 DEM 衔接周边地貌):后台加载,不阻塞 boot
-    void createOuterApron(proj, fields)
-      .then((apron) => {
-        if (apron) world.group.add(apron);
-      })
-      .catch((err: unknown) => {
-        console.warn("[region-engine] outer apron unavailable", err);
+      onProgress({ status: "building", value: 0.8, detail: "terrain" });
+      world.terrain = new TerrainTiles(tex, env, fields.heights, {
+        cloudShadow: cloudShadowFactor(env),
       });
+      world.group.add(world.terrain.mesh);
+      world.group.add(createWaterSurface(tex, env));
+      world.group.add(createGrassRing(tex, env));
+      // 水生细节:岸边芦苇、荇菜浮叶/黄花、水下水草、河床沙石、深水鱼群
+      const waterFlora = createWaterFlora(tex, env, fields);
+      world.group.add(waterFlora.group);
 
-    onProgress({ status: "ready", value: 1 });
-    return world;
+      onProgress({ status: "building", value: 0.86, detail: "vegetation" });
+      world.vegetation = new Vegetation(renderer, env, fields, scatter);
+      await world.vegetation.init();
+      world.group.add(world.vegetation.group);
+
+      onProgress({ status: "building", value: 0.93, detail: "buildings" });
+      world.group.add(createBuildings(osm, fields, env));
+
+      // 天空/云/粒子/光照
+      world.sky = createSkyDome(env);
+      world.group.add(world.sky);
+      world.group.add(createCloudLayer(env, fields.size));
+      world.fireflies = createFireflies(env, scatter.fireflySpots);
+      world.group.add(world.fireflies.group);
+      world.group.add(createAmbientParticles(env));
+      world.group.add(createMarineSnow(tex, env));
+      // 空中鸟群:按经纬度/栖息地/风雪/昼夜选种;羽色图集与鱼相同(每种多种子)
+      try {
+        world.birds = createBirdFlocks(tex, env, fields, params);
+        world.group.add(world.birds.group);
+        if (world.birds.emitters.length > 0) {
+          world.sound.register(new BirdSoundSystem(world.birds.emitters));
+        }
+      } catch (err) {
+        console.warn("[region-engine] bird flocks skipped", err);
+      }
+
+      world.pickLayer = new PickLayer({
+        fields,
+        scatter,
+        birds: world.birds?.emitters ?? [],
+        fish: waterFlora.fish.schools,
+        fireflySpots: scatter.fireflySpots,
+        groundProbe: world.groundProbe,
+      });
+      world.group.add(world.pickLayer.group);
+      world.pickLayer.update(0, env.nightK.value as number);
+
+      world.sun = new DirectionalLight(0xffffff, 3.2);
+      world.sun.castShadow = true;
+      world.sun.shadow.mapSize.set(2048, 2048);
+      world.sun.shadow.camera.left = -SHADOW_RANGE;
+      world.sun.shadow.camera.right = SHADOW_RANGE;
+      world.sun.shadow.camera.top = SHADOW_RANGE;
+      world.sun.shadow.camera.bottom = -SHADOW_RANGE;
+      world.sun.shadow.camera.near = 1;
+      world.sun.shadow.camera.far = 900;
+      world.sun.shadow.bias = -0.0004;
+      world.sun.shadow.normalBias = 0.5;
+      world.group.add(world.sun);
+      world.group.add(world.sun.target);
+      world.hemi = new HemisphereLight(0xbfd4e8, 0x54503c, 0.55);
+      world.group.add(world.hemi);
+
+      // 外围裙带(真实卫星影像 + 粗 DEM 衔接周边地貌):后台加载,不阻塞 boot
+      void createOuterApron(proj, fields)
+        .then((apron) => {
+          if (apron && !world.disposed) world.group.add(apron);
+        })
+        .catch((err: unknown) => {
+          console.warn("[region-engine] outer apron unavailable", err);
+        });
+
+      onProgress({ status: "building", value: 0.97, detail: "tour" });
+      try {
+        world.tour = generateTour(fields, osm.rivers, osm.buildings, scatter);
+        world.pathRibbon = createPathRibbon(world.tour, env);
+        world.pathRibbon.group.visible = false;
+        world.group.add(world.pathRibbon.group);
+      } catch (err) {
+        console.warn("[region-engine] tour path skipped", err);
+        world.tour = null;
+      }
+
+      onProgress({ status: "ready", value: 1 });
+      return world;
+    } catch (err) {
+      world.dispose();
+      throw err;
+    }
+  }
+
+  setTourVisible(v: boolean): void {
+    this.pathRibbon?.setVisible(v);
+  }
+
+  setTourMode(mode: SceneMode): void {
+    this.pathRibbon?.setMode(mode);
   }
 
   /** 出生点:区域中心地表(或水面)上方 */
@@ -174,9 +242,12 @@ export class RegionWorld {
   }
 
   update(camera: PerspectiveCamera, dt: number): void {
-    this.env.update(Math.min(dt, 0.1));
+    if (this.disposed) return;
+    const step = Math.min(dt, 0.1);
+    this.env.update(step);
     this.terrain.update(camera);
     this.vegetation.update(camera);
+    this.birds?.update(camera);
 
     // 天空穹顶跟随相机
     this.sky.position.copy(camera.position);
@@ -190,14 +261,54 @@ export class RegionWorld {
     this.sun.intensity = this.env.sunIntensity();
     this.hemi.intensity = this.env.ambientIntensity();
 
-    // 雾色随昼夜
+    // 雾色随昼夜;相机潜入水下时切换为浑浊水色(能见度 ~20 m)
     const nightK = this.env.nightK.value as number;
-    const [r, g, b] = skyHorizonRgb(nightK);
-    this.fog.color.setRGB(r, g, b);
-    this.fog.density = 0.00016 + nightK * 0.00006;
+    const cam = camera.position;
+    const probe = this.groundProbe(cam.x, cam.z);
+    const underwater = cam.y < probe.water - 0.05;
+    const depth = underwater ? Math.max(probe.water - cam.y, 0) : 0;
+    if (underwater) {
+      const dim = 1 - nightK * 0.8;
+      this.fog.color.setRGB(0.055 * dim, 0.14 * dim, 0.13 * dim);
+      this.fog.density = 0.028 + Math.min(depth * 0.003, 0.022);
+    } else {
+      const [r, g, b] = skyHorizonRgb(nightK);
+      this.fog.color.setRGB(r, g, b);
+      this.fog.density = 0.00016 + nightK * 0.00006;
+    }
 
-    // 萤火虫只在夜间绘制
-    this.fireflies.visible = nightK > 0.03;
+    this.sound.update({
+      camera,
+      dt: step,
+      time: this.env.time.value as number,
+      nightK,
+      wind: this.env.windStrength.value as number,
+      underwater,
+      waterDepth: depth,
+    });
+
+    // 萤火虫粒子/点光/光柱只在夜间启用
+    this.fireflies.update(nightK, this.env.time.value as number);
+    this.pickLayer?.update(this.env.time.value as number, nightK);
     void this.tmpVec;
+  }
+
+  pick(camera: PerspectiveCamera, ndc: Vector2): PickedEntity | null {
+    return this.pickLayer?.pick(camera, ndc) ?? null;
+  }
+
+  setLandmarks(items: readonly WorldLandmark[]): void {
+    this.pickLayer?.setLandmarks(items);
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.sound.dispose();
+    this.pickLayer?.dispose();
+    this.pickLayer = null;
+    this.pathRibbon?.dispose();
+    this.pathRibbon = null;
+    this.tour = null;
   }
 }

@@ -79,17 +79,57 @@ export function amplifyCpu(
 export function carveCpu(
   height: Float32Array,
   masks: RegionMasks,
+  lakeBowl: Float32Array,
+  res: number,
+  size: number,
+  seed: number,
 ): { height: Float32Array; carveDepth: Float32Array } {
+  const fbm = makeFbm(seed + 53);
+  const seedOff = (seed % 1024) * 13.7;
   const n = height.length;
   const out = new Float32Array(n);
   const depth = new Float32Array(n);
-  for (let i = 0; i < n; i++) {
-    const p = clamp01(masks.riverProfile[i] as number);
-    const riverDepth = Math.pow(p, 1.25) * (2 + (masks.riverHash[i] as number) * 3.5);
-    const lakeDepth = clamp01(masks.water[i] as number) * 2.8;
-    const d = Math.max(riverDepth, lakeDepth);
-    depth[i] = d;
-    out[i] = (height[i] as number) - d;
+  for (let y = 0; y < res; y++) {
+    for (let x = 0; x < res; x++) {
+      const i = y * res + x;
+      const p = clamp01(masks.riverProfile[i] as number);
+      const rD = masks.riverDepth[i] as number;
+      const bowl = clamp01(lakeBowl[i] as number);
+      const fx = masks.flowX[i] as number;
+      const fz = masks.flowZ[i] as number;
+      const flowMag = Math.hypot(fx, fz);
+      const tx = flowMag > 1e-4 ? fx / flowMag : 0;
+      const tz = flowMag > 1e-4 ? fz / flowMag : 0;
+      const wx = (x / res - 0.5) * size + seedOff;
+      const wz = (y / res - 0.5) * size + seedOff * 0.61;
+      const along = wx * tx + wz * tz;
+      const across = wx * -tz + wz * tx;
+      const streamK = smooth(3.0, 1.3, rD);
+      const baseRiver = Math.pow(p, 1.25) * rD;
+      const pool = 0.5 + 0.5 * Math.sin(along / 8.5 + fbm(wx / 22, wz / 22, 2) * 2.2);
+      const dunes = fbm(along / 14 + 4.1, across / 5 + 9.7, 3);
+      const ripples = fbm(along / 3.2 + 11.3, across / 1.4 + 2.9, 3);
+      const gravelBar = fbm(along / 7.2 + seedOff * 0.02, across / 2.6 + 5.4, 3);
+      const bar =
+        smooth(0.18, 0.42, p) *
+        smooth(0.78, 0.52, p) *
+        (0.5 + 0.5 * Math.sin(along / 24 + seedOff * 0.01));
+      const relief =
+        (pool - 0.45) * 0.26 * streamK * p +
+        dunes * 0.16 * p +
+        ripples * 0.08 * streamK * p +
+        gravelBar * 0.11 * streamK * p -
+        bar * 0.14;
+      const riverDepth = Math.max(0, baseRiver * (1 + relief));
+      const basin = fbm(wx / 32 + 8.2, wz / 32 + 3.4, 4) * 0.5 + 0.5;
+      const siltWave = fbm(wx / 7.5 + 21.7, wz / 7.5 + 5.1, 3);
+      const shoreBar = fbm(wx / 9.5 + 3.3, wz / 9.5 + seedOff * 0.03, 3);
+      const lakeDepth =
+        bowl * (0.38 + bowl * (1.45 + basin * 2.35) + siltWave * 0.22 + shoreBar * 0.16 * (1 - bowl));
+      const d = Math.max(riverDepth, lakeDepth);
+      depth[i] = d;
+      out[i] = (height[i] as number) - d;
+    }
   }
   return { height: out, carveDepth: depth };
 }

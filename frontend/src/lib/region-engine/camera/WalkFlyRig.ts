@@ -4,7 +4,8 @@
  * WALK 模式 —— 贴地 RPG 探索:重力(22 m/s²,游戏手感)、Space 跳跃(缓冲输入)、
  * Shift 疾跑、步频头部摆动/落地下沉弹簧/疾跑 FOV;
  * FLY 模式 —— 自由飞行:E 上升 / Q 下降、滚轮调速、Shift 加速。
- * `V` 切换两种模式;指针锁定鼠标视角(带 Chromium 解锁冷却处理)。
+ * `V` 切换 walk/fly(与工具栏第一/第三人称无关)。
+ * 第一人称:指针锁定鼠标视角;第三人称:按住拖动自由看,WASD 自由移动。
  *
  * 相机运动特效叠加在独立的逻辑位置(basePos)之上,getPose() 永远返回干净位姿。
  */
@@ -12,6 +13,9 @@
 import type { PerspectiveCamera } from "three";
 import { Vector3 } from "three";
 import type { SceneMode } from "../types";
+
+/** 工具栏视角:沉浸指针锁定 / 拖动自由观察 */
+export type CameraView = "first-person" | "third-person";
 
 const FORWARD = new Vector3();
 const RIGHT = new Vector3();
@@ -38,12 +42,19 @@ const BOB_ROLL = 0.0032;
 const SPRINT_FOV_ADD = 6;
 const DIP_K = 150;
 const DIP_C = 18;
-// fly 软碰撞
+// fly 软碰撞(水下允许贴近河床)
 const FLY_GROUND_CLEAR = 1.4;
-const WADE_CLEAR = 0.45;
+const FLY_BED_CLEAR = 0.32;
+const WALK_DIVE_CLEAR = 0.18;
+// 水下:阻尼 + Space 上浮
+const WATER_DRAG = 3.0;
+const SWIM_UP_ACCEL = 14;
+const SWIM_UP_MAX = 2.8;
 // Chromium 在 ESC 解锁后有 ~1.25 s 冷却,期间的 requestPointerLock 会被拒绝
 const LOCK_COOLDOWN_MS = 1300;
 const LOCK_INTENT_MS = 3500;
+/** 第三人称光标工具:位移超过此值才算拖视,避免单击拾取被抢走 */
+const LOOK_DRAG_SLOP2 = 16;
 
 export class WalkFlyRig {
   readonly camera: PerspectiveCamera;
@@ -53,13 +64,31 @@ export class WalkFlyRig {
   speed = 24;
   enabled = true;
   groundProbe: GroundProbe | null = null;
-  /** 模式切换回调(V 键 → 工具栏同步) */
+  /** walk/fly 切换回调(不再驱动工具栏视角) */
   onModeChange: ((mode: SceneMode) => void) | null = null;
+  /** 自动导览:跳过 WASD/跳跃,仍允许 V;第一人称位姿由导航写入,第三人称只跟位置 */
+  guided = false;
+  /**
+   * 光标拾取模式:第一人称点击不再自动 lock(由场景在点空处再请求);
+   * 第三人称按下不立刻拖视,超过阈值的拖动仍可转视角。
+   */
+  pickEnabled = false;
 
-  private modeV: SceneMode = "fly";
+  private modeV: SceneMode = "walk";
+  private viewV: CameraView = "first-person";
   private keys = new Set<string>();
   private vel = new Vector3();
   private locked = false;
+  private dragging = false;
+  /** 本段按下是否已拖过,用于区分单击拾取与拖视 */
+  private lookDragged = false;
+  private pendingThirdLook = false;
+  private pressX = 0;
+  private pressY = 0;
+  private lockIntentAt = -1e9;
+  private acquireLookLock: () => void = () => undefined;
+  /** 第三人称导览相对路径的额外高度(米) */
+  guidedLift = 0;
   private basePos = new Vector3();
   private velY = 0;
   private grounded = false;
@@ -79,7 +108,6 @@ export class WalkFlyRig {
 
     // ---- 指针锁定(冷却感知) ----
     let unlockAt = -1e9;
-    let lockIntentAt = -1e9;
     let relockTimer: number | undefined;
     const clearRelock = (): void => {
       if (relockTimer !== undefined) {
@@ -88,7 +116,7 @@ export class WalkFlyRig {
       }
     };
     const retryLock = (delayMs: number): void => {
-      if (performance.now() - lockIntentAt > LOCK_INTENT_MS) return;
+      if (performance.now() - this.lockIntentAt > LOCK_INTENT_MS) return;
       if (relockTimer !== undefined) return;
       relockTimer = window.setTimeout(() => {
         relockTimer = undefined;
@@ -96,7 +124,7 @@ export class WalkFlyRig {
       }, delayMs);
     };
     const acquireLock = (): void => {
-      if (!this.enabled || this.locked) return;
+      if (!this.enabled || this.locked || this.viewV !== "first-person") return;
       clearRelock();
       const wait = unlockAt + LOCK_COOLDOWN_MS - performance.now();
       if (wait > 0) {
@@ -117,11 +145,7 @@ export class WalkFlyRig {
         p.catch(() => retryLock(350));
       }
     };
-    const onClick = (): void => {
-      if (!this.enabled || this.locked) return;
-      lockIntentAt = performance.now();
-      acquireLock();
-    };
+    this.acquireLookLock = acquireLock;
     const onLockChange = (): void => {
       const was = this.locked;
       this.locked = document.pointerLockElement === dom;
@@ -131,11 +155,56 @@ export class WalkFlyRig {
     const onLockError = (): void => {
       retryLock(Math.max(unlockAt + LOCK_COOLDOWN_MS - performance.now() + 60, 300));
     };
-    const onMouseMove = (e: MouseEvent): void => {
-      if (!this.locked) return;
-      this.yaw -= e.movementX * 0.0022;
-      this.pitch -= e.movementY * 0.0022;
+    const applyLookDelta = (dx: number, dy: number): void => {
+      this.yaw -= dx * 0.0022;
+      this.pitch -= dy * 0.0022;
       this.pitch = Math.max(-1.55, Math.min(1.55, this.pitch));
+    };
+    const onMouseMove = (e: MouseEvent): void => {
+      if (this.viewV === "third-person") {
+        if (this.pendingThirdLook && !this.dragging) {
+          const dx = e.clientX - this.pressX;
+          const dy = e.clientY - this.pressY;
+          if (dx * dx + dy * dy >= LOOK_DRAG_SLOP2) {
+            this.dragging = true;
+            this.lookDragged = true;
+            this.pendingThirdLook = false;
+          }
+        }
+        if (!this.dragging) return;
+        applyLookDelta(e.movementX, e.movementY);
+        return;
+      }
+      if (!this.locked || this.guided) return;
+      applyLookDelta(e.movementX, e.movementY);
+    };
+    const onPointerDown = (e: PointerEvent): void => {
+      if (!this.enabled || this.viewV !== "third-person" || e.button !== 0) return;
+      this.lookDragged = false;
+      if (this.pickEnabled) {
+        this.pendingThirdLook = true;
+        this.dragging = false;
+        this.pressX = e.clientX;
+        this.pressY = e.clientY;
+      } else {
+        this.pendingThirdLook = false;
+        this.dragging = true;
+      }
+      try {
+        dom.setPointerCapture(e.pointerId);
+      } catch {
+        /* 捕获失败仍靠 document mousemove */
+      }
+    };
+    const onPointerUp = (e: PointerEvent): void => {
+      if (e.button !== 0 && e.type !== "pointercancel") return;
+      this.dragging = false;
+      this.pendingThirdLook = false;
+      try {
+        if (dom.hasPointerCapture(e.pointerId)) dom.releasePointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
     };
     const onKeyDown = (e: KeyboardEvent): void => {
       const target = e.target as HTMLElement | null;
@@ -150,15 +219,27 @@ export class WalkFlyRig {
     const onKeyUp = (e: KeyboardEvent): void => {
       this.keys.delete(e.code);
     };
-    const onBlur = (): void => this.keys.clear();
+    const onBlur = (): void => {
+      this.keys.clear();
+      this.dragging = false;
+      this.pendingThirdLook = false;
+    };
     const onWheel = (e: WheelEvent): void => {
-      if (this.modeV !== "fly" || !this.locked) return;
+      if (this.guided && this.viewV === "third-person") {
+        e.preventDefault();
+        this.guidedLift = Math.min(280, Math.max(0, this.guidedLift - Math.sign(e.deltaY) * 5));
+        return;
+      }
+      if (this.modeV !== "fly" || this.guided) return;
+      if (this.viewV === "first-person" && !this.locked) return;
       e.preventDefault();
       this.speed *= Math.pow(1.15, -Math.sign(e.deltaY));
       this.speed = Math.min(2000, Math.max(0.5, this.speed));
     };
 
-    dom.addEventListener("click", onClick);
+    dom.addEventListener("pointerdown", onPointerDown);
+    dom.addEventListener("pointerup", onPointerUp);
+    dom.addEventListener("pointercancel", onPointerUp);
     document.addEventListener("pointerlockchange", onLockChange);
     document.addEventListener("pointerlockerror", onLockError);
     document.addEventListener("mousemove", onMouseMove);
@@ -168,7 +249,10 @@ export class WalkFlyRig {
     dom.addEventListener("wheel", onWheel, { passive: false });
     this.disposers.push(() => {
       clearRelock();
-      dom.removeEventListener("click", onClick);
+      this.dragging = false;
+      dom.removeEventListener("pointerdown", onPointerDown);
+      dom.removeEventListener("pointerup", onPointerUp);
+      dom.removeEventListener("pointercancel", onPointerUp);
       document.removeEventListener("pointerlockchange", onLockChange);
       document.removeEventListener("pointerlockerror", onLockError);
       document.removeEventListener("mousemove", onMouseMove);
@@ -189,18 +273,71 @@ export class WalkFlyRig {
     return this.modeV;
   }
 
+  get viewMode(): CameraView {
+    return this.viewV;
+  }
+
+  get isLocked(): boolean {
+    return this.locked;
+  }
+
+  /**
+   * 第一人称点空处进入指针锁定,鼠标控制朝向,WASD 跟视角走。
+   * 必须在用户 click 手势里调用。
+   */
+  requestLookLock(): void {
+    if (!this.enabled || this.locked || this.viewV !== "first-person") return;
+    this.lockIntentAt = performance.now();
+    this.acquireLookLock();
+  }
+
+  /** 刚结束的按下是否已拖视;消费后清零,避免拖视抬起时误拾取 */
+  consumeLookDrag(): boolean {
+    const dragged = this.lookDragged;
+    this.lookDragged = false;
+    return dragged;
+  }
+
+  /**
+   * 光标工具:第三人称单击不立刻拖视。
+   * 点击锁定由场景 resolvePointerClick 决定;切到光标时若已 lock 则退出以便点选。
+   */
+  setPickEnabled(on: boolean): void {
+    this.pickEnabled = on;
+    if (on) {
+      this.dragging = false;
+      this.pendingThirdLook = false;
+      if (this.locked) document.exitPointerLock();
+    }
+  }
+
+  /** 工具栏第一/第三人称:只改观察方式,不改 walk/fly */
+  setViewMode(mode: CameraView): void {
+    if (mode === this.viewV) return;
+    this.viewV = mode;
+    this.dragging = false;
+    if (mode !== "first-person" && this.locked) {
+      document.exitPointerLock();
+    }
+    if (mode === "third-person" && this.guided && this.guidedLift < 1) {
+      this.guidedLift = 10;
+    }
+  }
+
   /** 切换 walk/fly:进 walk 吸附到脚下地形;离开 walk 剥离特效偏移 */
   setMode(mode: SceneMode): void {
     if (mode === this.modeV) return;
     if (mode === "walk") {
       if (!this.groundProbe) return;
-      this.basePos.copy(this.camera.position);
-      const g = this.groundProbe(this.basePos.x, this.basePos.z);
-      this.basePos.y = Math.max(g.ground + EYE_HEIGHT, g.water + WADE_CLEAR);
-      this.velY = 0;
-      this.vel.set(0, 0, 0);
-      this.grounded = true;
-    } else {
+      if (!this.guided) {
+        this.basePos.copy(this.camera.position);
+        const g = this.groundProbe(this.basePos.x, this.basePos.z);
+        this.basePos.y = g.ground + EYE_HEIGHT;
+        this.velY = 0;
+        this.vel.set(0, 0, 0);
+        this.grounded = true;
+      }
+    } else if (!this.guided) {
       this.camera.position.copy(this.basePos);
       this.resetEffects();
     }
@@ -209,11 +346,33 @@ export class WalkFlyRig {
     this.camera.updateMatrixWorld();
   }
 
+  setGuided(on: boolean): void {
+    this.guided = on;
+    this.vel.set(0, 0, 0);
+    this.velY = 0;
+    this.jumpAt = -1;
+    this.resetEffects();
+    if (!on) {
+      this.basePos.copy(this.camera.position);
+      this.guidedLift = 0;
+    } else if (this.viewV === "third-person" && this.guidedLift < 1) {
+      this.guidedLift = 10;
+    }
+  }
+
   setPose(x: number, y: number, z: number, yaw: number, pitch: number): void {
     this.camera.position.set(x, y, z);
     this.basePos.copy(this.camera.position);
     this.yaw = yaw;
     this.pitch = pitch;
+    this.applyRotation(0);
+    this.camera.updateMatrixWorld();
+  }
+
+  /** 只写位置,保留当前 yaw/pitch(第三人称导览自由看) */
+  setPosition(x: number, y: number, z: number): void {
+    this.camera.position.set(x, y, z);
+    this.basePos.copy(this.camera.position);
     this.applyRotation(0);
     this.camera.updateMatrixWorld();
   }
@@ -239,8 +398,24 @@ export class WalkFlyRig {
 
   update(dt: number): void {
     if (!this.enabled) return;
+    if (this.guided) {
+      if (this.viewV === "third-person") this.updateGuidedLift(dt);
+      this.applyRotation(0);
+      this.camera.updateMatrixWorld();
+      return;
+    }
     if (this.modeV === "walk") this.updateWalk(dt);
     else this.updateFly(dt);
+  }
+
+  /** 第三人称导览:Q 降 / E 升,Shift 加速,不离开路径水平位置 */
+  private updateGuidedLift(dt: number): void {
+    let v = 0;
+    if (this.keys.has("KeyE")) v += 1;
+    if (this.keys.has("KeyQ")) v -= 1;
+    if (v === 0) return;
+    const speed = this.keys.has("ShiftLeft") || this.keys.has("ShiftRight") ? 48 : 16;
+    this.guidedLift = Math.min(280, Math.max(0, this.guidedLift + v * speed * dt));
   }
 
   private updateFly(dt: number): void {
@@ -266,11 +441,13 @@ export class WalkFlyRig {
     this.vel.lerp(MOVE.multiplyScalar(target), damp);
     this.camera.position.addScaledVector(this.vel, dt);
 
-    // 软地面碰撞 + 水面之上(无水下渲染)
+    // 有水的格子允许降到河床附近,否则 1.4 m 离地间隙会把相机卡在浅溪水面之上
     if (this.groundProbe) {
       const c = this.camera.position;
       const g = this.groundProbe(c.x, c.z);
-      const floor = Math.max(g.ground + FLY_GROUND_CLEAR, g.water + WADE_CLEAR);
+      const wet = Number.isFinite(g.water) && g.water > g.ground + 0.05;
+      const clear = wet ? FLY_BED_CLEAR : FLY_GROUND_CLEAR;
+      const floor = g.ground + clear;
       if (c.y < floor) c.y = floor;
     }
     this.basePos.copy(this.camera.position);
@@ -310,9 +487,13 @@ export class WalkFlyRig {
     this.basePos.x += this.vel.x * dt;
     this.basePos.z += this.vel.z * dt;
 
+    const g = probe(this.basePos.x, this.basePos.z);
+    const wet = Number.isFinite(g.water) && g.water > g.ground + 0.05;
+
     // ---- 垂直:重力、跳跃(按住或 150 ms 缓冲)、贴地 ----
     const jumpBuffered = this.jumpAt >= 0 && performance.now() - this.jumpAt < 150;
-    if (this.grounded && (this.keys.has("Space") || jumpBuffered)) {
+    // 水域内 Space 改为上浮,不跳出水面
+    if (!wet && this.grounded && (this.keys.has("Space") || jumpBuffered)) {
       this.velY = JUMP_V0;
       this.grounded = false;
       this.jumpAt = -1;
@@ -321,8 +502,13 @@ export class WalkFlyRig {
     this.basePos.y += (this.velY - GRAVITY * dt * 0.5) * dt;
     this.velY -= GRAVITY * dt;
 
-    const g = probe(this.basePos.x, this.basePos.z);
-    const eyeFloor = g.ground + EYE_HEIGHT;
+    // 浅溪/浅湖:眼睛降到水面以下;深水仍用 1.7 m 但夹在河床与水面之间
+    const eyeFloor = wet
+      ? Math.max(
+          g.ground + WALK_DIVE_CLEAR,
+          Math.min(g.ground + EYE_HEIGHT, g.water - 0.08),
+        )
+      : g.ground + EYE_HEIGHT;
     if (this.basePos.y <= eyeFloor) {
       if (!this.grounded && this.velY < -3) {
         this.dipV -= Math.min(Math.abs(this.velY) * 0.035, 0.2) * 9;
@@ -337,12 +523,13 @@ export class WalkFlyRig {
     } else if (this.basePos.y - eyeFloor > 0.02) {
       this.grounded = false;
     }
-    // 涉水:视点保持水面之上
-    const wadeFloor = g.water + WADE_CLEAR;
-    if (this.basePos.y < wadeFloor) {
-      this.basePos.y = wadeFloor;
-      if (this.velY < 0) this.velY = 0;
-      this.grounded = true;
+    // 水下:阻尼下沉 + Space 上浮(可以潜入河湖看河床/水草/鱼群)
+    if (this.basePos.y < g.water - 0.1) {
+      this.velY *= Math.exp(-dt * WATER_DRAG);
+      if (this.keys.has("Space")) {
+        this.velY = Math.min(this.velY + SWIM_UP_ACCEL * dt, SWIM_UP_MAX);
+        this.grounded = false;
+      }
     }
 
     // ---- 相机运动特效 ----
