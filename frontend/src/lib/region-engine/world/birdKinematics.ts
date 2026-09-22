@@ -28,6 +28,10 @@ export type BirdFlockEmitter = {
   count: number;
   nocturnal: boolean;
   kinematics: BirdFlockKinematics;
+  /** 该群是否挂光柱信标(拾取层放柱体代理) */
+  beacon: boolean;
+  /** 光柱底部海拔(地表/水面) */
+  groundY: number;
 };
 
 export type Vec3 = { x: number; y: number; z: number };

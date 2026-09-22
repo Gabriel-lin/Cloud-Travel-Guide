@@ -2430,6 +2430,8 @@ function flocksToEmitters(flocks: FlockCfg[]): BirdFlockEmitter[] {
       rotC: Math.cos(sc.rot),
       rotS: Math.sin(sc.rot),
     },
+    beacon: sc.beacon,
+    groundY: Math.max(sc.spot.ground, sc.spot.wy),
   }));
 }
 

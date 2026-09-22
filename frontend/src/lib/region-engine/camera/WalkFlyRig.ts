@@ -53,6 +53,8 @@ const SWIM_UP_MAX = 2.8;
 // Chromium 在 ESC 解锁后有 ~1.25 s 冷却,期间的 requestPointerLock 会被拒绝
 const LOCK_COOLDOWN_MS = 1300;
 const LOCK_INTENT_MS = 3500;
+/** 第三人称光标工具:位移超过此值才算拖视,避免单击拾取被抢走 */
+const LOOK_DRAG_SLOP2 = 16;
 
 export class WalkFlyRig {
   readonly camera: PerspectiveCamera;
@@ -66,6 +68,11 @@ export class WalkFlyRig {
   onModeChange: ((mode: SceneMode) => void) | null = null;
   /** 自动导览:跳过 WASD/跳跃,仍允许 V;第一人称位姿由导航写入,第三人称只跟位置 */
   guided = false;
+  /**
+   * 光标拾取模式:第一人称点击不再自动 lock(由场景在点空处再请求);
+   * 第三人称按下不立刻拖视,超过阈值的拖动仍可转视角。
+   */
+  pickEnabled = false;
 
   private modeV: SceneMode = "walk";
   private viewV: CameraView = "first-person";
@@ -73,6 +80,13 @@ export class WalkFlyRig {
   private vel = new Vector3();
   private locked = false;
   private dragging = false;
+  /** 本段按下是否已拖过,用于区分单击拾取与拖视 */
+  private lookDragged = false;
+  private pendingThirdLook = false;
+  private pressX = 0;
+  private pressY = 0;
+  private lockIntentAt = -1e9;
+  private acquireLookLock: () => void = () => undefined;
   /** 第三人称导览相对路径的额外高度(米) */
   guidedLift = 0;
   private basePos = new Vector3();
@@ -94,7 +108,6 @@ export class WalkFlyRig {
 
     // ---- 指针锁定(冷却感知) ----
     let unlockAt = -1e9;
-    let lockIntentAt = -1e9;
     let relockTimer: number | undefined;
     const clearRelock = (): void => {
       if (relockTimer !== undefined) {
@@ -103,7 +116,7 @@ export class WalkFlyRig {
       }
     };
     const retryLock = (delayMs: number): void => {
-      if (performance.now() - lockIntentAt > LOCK_INTENT_MS) return;
+      if (performance.now() - this.lockIntentAt > LOCK_INTENT_MS) return;
       if (relockTimer !== undefined) return;
       relockTimer = window.setTimeout(() => {
         relockTimer = undefined;
@@ -132,11 +145,7 @@ export class WalkFlyRig {
         p.catch(() => retryLock(350));
       }
     };
-    const onClick = (): void => {
-      if (!this.enabled || this.locked || this.viewV !== "first-person") return;
-      lockIntentAt = performance.now();
-      acquireLock();
-    };
+    this.acquireLookLock = acquireLock;
     const onLockChange = (): void => {
       const was = this.locked;
       this.locked = document.pointerLockElement === dom;
@@ -153,6 +162,15 @@ export class WalkFlyRig {
     };
     const onMouseMove = (e: MouseEvent): void => {
       if (this.viewV === "third-person") {
+        if (this.pendingThirdLook && !this.dragging) {
+          const dx = e.clientX - this.pressX;
+          const dy = e.clientY - this.pressY;
+          if (dx * dx + dy * dy >= LOOK_DRAG_SLOP2) {
+            this.dragging = true;
+            this.lookDragged = true;
+            this.pendingThirdLook = false;
+          }
+        }
         if (!this.dragging) return;
         applyLookDelta(e.movementX, e.movementY);
         return;
@@ -162,7 +180,16 @@ export class WalkFlyRig {
     };
     const onPointerDown = (e: PointerEvent): void => {
       if (!this.enabled || this.viewV !== "third-person" || e.button !== 0) return;
-      this.dragging = true;
+      this.lookDragged = false;
+      if (this.pickEnabled) {
+        this.pendingThirdLook = true;
+        this.dragging = false;
+        this.pressX = e.clientX;
+        this.pressY = e.clientY;
+      } else {
+        this.pendingThirdLook = false;
+        this.dragging = true;
+      }
       try {
         dom.setPointerCapture(e.pointerId);
       } catch {
@@ -172,6 +199,7 @@ export class WalkFlyRig {
     const onPointerUp = (e: PointerEvent): void => {
       if (e.button !== 0 && e.type !== "pointercancel") return;
       this.dragging = false;
+      this.pendingThirdLook = false;
       try {
         if (dom.hasPointerCapture(e.pointerId)) dom.releasePointerCapture(e.pointerId);
       } catch {
@@ -194,6 +222,7 @@ export class WalkFlyRig {
     const onBlur = (): void => {
       this.keys.clear();
       this.dragging = false;
+      this.pendingThirdLook = false;
     };
     const onWheel = (e: WheelEvent): void => {
       if (this.guided && this.viewV === "third-person") {
@@ -208,7 +237,6 @@ export class WalkFlyRig {
       this.speed = Math.min(2000, Math.max(0.5, this.speed));
     };
 
-    dom.addEventListener("click", onClick);
     dom.addEventListener("pointerdown", onPointerDown);
     dom.addEventListener("pointerup", onPointerUp);
     dom.addEventListener("pointercancel", onPointerUp);
@@ -222,7 +250,6 @@ export class WalkFlyRig {
     this.disposers.push(() => {
       clearRelock();
       this.dragging = false;
-      dom.removeEventListener("click", onClick);
       dom.removeEventListener("pointerdown", onPointerDown);
       dom.removeEventListener("pointerup", onPointerUp);
       dom.removeEventListener("pointercancel", onPointerUp);
@@ -248,6 +275,40 @@ export class WalkFlyRig {
 
   get viewMode(): CameraView {
     return this.viewV;
+  }
+
+  get isLocked(): boolean {
+    return this.locked;
+  }
+
+  /**
+   * 第一人称点空处进入指针锁定,鼠标控制朝向,WASD 跟视角走。
+   * 必须在用户 click 手势里调用。
+   */
+  requestLookLock(): void {
+    if (!this.enabled || this.locked || this.viewV !== "first-person") return;
+    this.lockIntentAt = performance.now();
+    this.acquireLookLock();
+  }
+
+  /** 刚结束的按下是否已拖视;消费后清零,避免拖视抬起时误拾取 */
+  consumeLookDrag(): boolean {
+    const dragged = this.lookDragged;
+    this.lookDragged = false;
+    return dragged;
+  }
+
+  /**
+   * 光标工具:第三人称单击不立刻拖视。
+   * 点击锁定由场景 resolvePointerClick 决定;切到光标时若已 lock 则退出以便点选。
+   */
+  setPickEnabled(on: boolean): void {
+    this.pickEnabled = on;
+    if (on) {
+      this.dragging = false;
+      this.pendingThirdLook = false;
+      if (this.locked) document.exitPointerLock();
+    }
   }
 
   /** 工具栏第一/第三人称:只改观察方式,不改 walk/fly */

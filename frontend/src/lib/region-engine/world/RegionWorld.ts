@@ -13,13 +13,14 @@ import {
   Group,
   HemisphereLight,
   PerspectiveCamera,
+  Vector2,
   Vector3,
 } from "three";
 import type { Renderer } from "three/webgpu";
 import { DEFAULT_SIZE_KM } from "../const";
 import { fetchDem } from "../geo/terrarium";
 import { fetchOsm } from "../geo/overpass";
-import { createProjector } from "../geo/project";
+import { createProjector, type Projector } from "../geo/project";
 import { rasterizeMasks } from "../geo/rasterize";
 import { runWorldPipeline } from "../gpu/pipeline";
 import type { GroundProbe } from "../camera/WalkFlyRig";
@@ -38,6 +39,9 @@ import { scatterWorld } from "../veg/scatter";
 import type { BootProgress, RegionParams, SceneMode, WorldFields } from "../types";
 import { BirdSoundSystem } from "../audio/birds/BirdSoundSystem";
 import { SoundDirector } from "../audio/SoundDirector";
+import { PickLayer } from "../pick/PickLayer";
+import type { WorldLandmark } from "../pick/landmarks";
+import type { PickedEntity } from "../pick/types";
 import { createBirdFlocks, type BirdFlocksSys } from "./BirdFlocks";
 import { createBuildings } from "./Buildings";
 import { createGrassRing } from "./GrassRing";
@@ -57,8 +61,10 @@ export class RegionWorld {
   readonly env = new EnvState();
   readonly fog = new FogExp2(0xcdd8e4, 0.00016);
   readonly groundProbe: GroundProbe;
+  readonly projector: Projector;
   readonly sound = new SoundDirector();
   tour: RegionTour | null = null;
+  pickLayer: PickLayer | null = null;
   private pathRibbon: PathRibbon | null = null;
 
   private terrain!: TerrainTiles;
@@ -72,7 +78,8 @@ export class RegionWorld {
   private tmpVec = new Vector3();
   private disposed = false;
 
-  private constructor(readonly fields: WorldFields) {
+  private constructor(readonly fields: WorldFields, projector: Projector) {
+    this.projector = projector;
     const { res, size } = fields;
     this.groundProbe = (x: number, z: number) => ({
       ground: sampleCpu(fields.heights, x, z, res, size),
@@ -118,7 +125,7 @@ export class RegionWorld {
 
     // 4. 散布 + 场景构建
     onProgress({ status: "building", value: 0.74, detail: "scatter" });
-    const world = new RegionWorld(fields);
+    const world = new RegionWorld(fields, proj);
     try {
       const env = world.env;
       env.setTimeOfDay(params.timeOfDay);
@@ -135,7 +142,8 @@ export class RegionWorld {
       world.group.add(createWaterSurface(tex, env));
       world.group.add(createGrassRing(tex, env));
       // 水生细节:岸边芦苇、荇菜浮叶/黄花、水下水草、河床沙石、深水鱼群
-      world.group.add(createWaterFlora(tex, env, fields));
+      const waterFlora = createWaterFlora(tex, env, fields);
+      world.group.add(waterFlora.group);
 
       onProgress({ status: "building", value: 0.86, detail: "vegetation" });
       world.vegetation = new Vegetation(renderer, env, fields, scatter);
@@ -163,6 +171,17 @@ export class RegionWorld {
       } catch (err) {
         console.warn("[region-engine] bird flocks skipped", err);
       }
+
+      world.pickLayer = new PickLayer({
+        fields,
+        scatter,
+        birds: world.birds?.emitters ?? [],
+        fish: waterFlora.fish.schools,
+        fireflySpots: scatter.fireflySpots,
+        groundProbe: world.groundProbe,
+      });
+      world.group.add(world.pickLayer.group);
+      world.pickLayer.update(0, env.nightK.value as number);
 
       world.sun = new DirectionalLight(0xffffff, 3.2);
       world.sun.castShadow = true;
@@ -270,13 +289,24 @@ export class RegionWorld {
 
     // 萤火虫粒子/点光/光柱只在夜间启用
     this.fireflies.update(nightK, this.env.time.value as number);
+    this.pickLayer?.update(this.env.time.value as number, nightK);
     void this.tmpVec;
+  }
+
+  pick(camera: PerspectiveCamera, ndc: Vector2): PickedEntity | null {
+    return this.pickLayer?.pick(camera, ndc) ?? null;
+  }
+
+  setLandmarks(items: readonly WorldLandmark[]): void {
+    this.pickLayer?.setLandmarks(items);
   }
 
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
     this.sound.dispose();
+    this.pickLayer?.dispose();
+    this.pickLayer = null;
     this.pathRibbon?.dispose();
     this.pathRibbon = null;
     this.tour = null;

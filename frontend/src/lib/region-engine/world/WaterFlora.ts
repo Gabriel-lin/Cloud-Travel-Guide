@@ -51,7 +51,7 @@ import {
 } from "../render/fields";
 import type { WorldFields } from "../types";
 import { makeRng } from "../veg/treeBuilder";
-import { createFishSchools } from "./FishSchools";
+import { createFishSchools, type FishSchoolsSys } from "./FishSchools";
 
 // ---------------------------------------------------------------------------
 // 几何
@@ -791,11 +791,16 @@ function stoneMaterial(
 // 总装
 // ---------------------------------------------------------------------------
 
+export type WaterFloraSys = {
+  group: Group;
+  fish: FishSchoolsSys;
+};
+
 export function createWaterFlora(
   tex: WorldTextures,
   env: EnvState,
   fields: WorldFields,
-): Group {
+): WaterFloraSys {
   const group = new Group();
 
   const reeds = new InstancedMesh(
@@ -904,12 +909,14 @@ export function createWaterFlora(
     group.add(mesh);
   }
 
-  // 专用 TSL 鱼群系统:8 种淡水鱼 + 每群独立控制算法 + 光柱信标
+  // 专用 TSL 鱼群系统:淡水鱼 + 每群独立控制算法 + 光柱信标
+  let fish: FishSchoolsSys = { group: new Group(), schools: [] };
   try {
-    group.add(createFishSchools(tex, env, fields));
+    fish = createFishSchools(tex, env, fields);
+    group.add(fish.group);
   } catch (err) {
     console.warn("[region-engine] fish schools skipped", err);
   }
 
-  return group;
+  return { group, fish };
 }

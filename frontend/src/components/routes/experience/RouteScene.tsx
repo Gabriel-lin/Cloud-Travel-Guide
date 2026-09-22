@@ -12,17 +12,27 @@ import {
   useState,
 } from "react";
 import type { PerspectiveCamera } from "three";
+import { Vector2 } from "three";
 import { WebGPURenderer, type Renderer, type RenderPipeline } from "three/webgpu";
 
 import { useAppLocale } from "@/hooks/use-app-locale";
 import { WalkFlyRig } from "@/lib/region-engine/camera/WalkFlyRig";
 import { useRegionScene } from "@/lib/region-engine/hooks/useRegionScene";
 import { AutoNavigator } from "@/lib/region-engine/nav/AutoNavigator";
+import type { PickedEntity } from "@/lib/region-engine/pick/types";
+import { projectLandmarks } from "@/lib/region-engine/pick/landmarks";
+import { resolvePointerClick } from "@/lib/region-engine/pick/pointerPolicy";
 import { createRegionPostFX } from "@/lib/region-engine/render/postfx";
 import type { BootProgress, RegionParams } from "@/lib/region-engine/types";
 import { cn } from "@/lib/utils";
 
-import type { RouteExperienceConfig, RouteToolbarState, RouteViewMode } from "./types";
+import type {
+  RouteExperienceConfig,
+  RouteLandmark,
+  RoutePointerTool,
+  RouteToolbarState,
+  RouteViewMode,
+} from "./types";
 
 export type RouteSceneProps = {
   config: RouteExperienceConfig;
@@ -31,6 +41,8 @@ export type RouteSceneProps = {
   activeStopIndex?: number;
   /** 场景内状态回写(昼夜等);walk/fly 由 V 键在相机内切换,不改工具栏视角 */
   onStateChange?: (patch: Partial<RouteToolbarState>) => void;
+  /** 光标工具下点击可拾取实体;点空处传 null 退出拾取 */
+  onPick?: (entity: PickedEntity | null) => void;
 };
 
 /**
@@ -104,17 +116,34 @@ type SceneContentProps = {
   params: RegionParams;
   autoTour: boolean;
   viewMode: RouteViewMode;
+  pointerTool: RoutePointerTool;
+  landmarks: readonly RouteLandmark[];
   onProgress: (p: BootProgress) => void;
+  onPick?: (entity: PickedEntity | null) => void;
 };
 
 /** Canvas 内部:boot 世界 + 相机 rig + 每帧推进 */
-function SceneContent({ params, autoTour, viewMode, onProgress }: SceneContentProps) {
+function SceneContent({
+  params,
+  autoTour,
+  viewMode,
+  pointerTool,
+  landmarks,
+  onProgress,
+  onPick,
+}: SceneContentProps) {
   const camera = useThree((s) => s.camera);
   const gl = useThree((s) => s.gl);
   const rigRef = useRef<WalkFlyRig | null>(null);
   const navRef = useRef<AutoNavigator | null>(null);
+  const ndc = useRef(new Vector2());
+  const onPickRef = useRef(onPick);
 
   const { world } = useRegionScene(params, onProgress);
+
+  useEffect(() => {
+    onPickRef.current = onPick;
+  }, [onPick]);
 
   useEffect(() => {
     const dom = gl.domElement;
@@ -133,6 +162,7 @@ function SceneContent({ params, autoTour, viewMode, onProgress }: SceneContentPr
     if (!world || !rig) return;
     rig.groundProbe = world.groundProbe;
     rig.setViewMode(viewMode);
+    rig.setPickEnabled(pointerTool === "cursor");
     const spawn = world.spawnPoint();
     if (viewMode === "first-person") {
       rig.setMode("walk");
@@ -153,6 +183,15 @@ function SceneContent({ params, autoTour, viewMode, onProgress }: SceneContentPr
   useEffect(() => {
     rigRef.current?.setViewMode(viewMode);
   }, [viewMode]);
+
+  useEffect(() => {
+    rigRef.current?.setPickEnabled(pointerTool === "cursor");
+  }, [pointerTool]);
+
+  useEffect(() => {
+    if (!world) return;
+    world.setLandmarks(projectLandmarks(landmarks, world.projector.toLocal.bind(world.projector)));
+  }, [world, landmarks]);
 
   // 自动导览:相机始终沿路径走;第三人称保留拖动看和高度调节
   useEffect(() => {
@@ -176,6 +215,42 @@ function SceneContent({ params, autoTour, viewMode, onProgress }: SceneContentPr
     if (!world) return;
     return world.sound.installUnlock(gl.domElement);
   }, [world, gl]);
+
+  useEffect(() => {
+    const dom = gl.domElement;
+    if (!dom || !world) return;
+    const onClick = (e: MouseEvent) => {
+      const rig = rigRef.current;
+      const dragged = rig?.consumeLookDrag() ?? false;
+      const locked = rig?.isLocked ?? false;
+      let hit: PickedEntity | null = null;
+      if (pointerTool === "cursor" && !locked && !dragged) {
+        const rect = dom.getBoundingClientRect();
+        if (rect.width < 1 || rect.height < 1) return;
+        ndc.current.set(
+          ((e.clientX - rect.left) / rect.width) * 2 - 1,
+          -((e.clientY - rect.top) / rect.height) * 2 + 1,
+        );
+        hit = world.pick(camera as PerspectiveCamera, ndc.current);
+      }
+      const action = resolvePointerClick({
+        pointerTool,
+        viewMode,
+        locked,
+        dragged,
+        hit,
+      });
+      if (action.kind === "ignore") return;
+      if (action.kind === "pick") {
+        onPickRef.current?.(action.entity);
+        return;
+      }
+      if (action.clearPick) onPickRef.current?.(null);
+      rig?.requestLookLock();
+    };
+    dom.addEventListener("click", onClick);
+    return () => dom.removeEventListener("click", onClick);
+  }, [gl, world, pointerTool, camera, viewMode]);
 
   useFrame((rootState, dt) => {
     const rig = rigRef.current;
@@ -234,6 +309,8 @@ function RegionPostFX() {
   return null;
 }
 
+const EMPTY_LANDMARKS: readonly RouteLandmark[] = [];
+
 const BOOT_LABEL_KEYS: Record<BootProgress["status"], string> = {
   idle: "idle",
   "fetching-dem": "fetchingDem",
@@ -256,6 +333,7 @@ export function RouteScene({
   config,
   state,
   activeStopIndex = 0,
+  onPick,
 }: RouteSceneProps) {
   const { t } = useAppLocale();
   const [progress, setProgress] = useState<BootProgress>({ status: "idle", value: 0 });
@@ -293,9 +371,11 @@ export function RouteScene({
     <div
       className={cn(
         "absolute inset-0 z-0 overflow-hidden bg-surface-950",
-        state.pointerTool === "hand" || state.viewMode === "third-person"
-          ? "cursor-grab"
-          : "cursor-default",
+        state.pointerTool === "cursor"
+          ? "cursor-pointer"
+          : state.pointerTool === "hand" || state.viewMode === "third-person"
+            ? "cursor-grab"
+            : "cursor-default",
       )}
       data-view-mode={state.viewMode}
     >
@@ -317,7 +397,10 @@ export function RouteScene({
               params={params}
               autoTour={state.autoTour}
               viewMode={state.viewMode}
+              pointerTool={state.pointerTool}
+              landmarks={stop?.landmarks ?? EMPTY_LANDMARKS}
               onProgress={setProgress}
+              onPick={onPick}
             />
           </PerformanceMonitor>
           {process.env.NODE_ENV === "development" && <Stats />}

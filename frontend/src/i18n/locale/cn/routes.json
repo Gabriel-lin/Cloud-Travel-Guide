@@ -56,7 +56,7 @@
     "scene": {
       "title": "三维场景",
       "rendererError": "3D 渲染器初始化失败，请确认浏览器支持 WebGPU 或 WebGL2",
-      "controls": "点击进入场景 · V 切换行走/飞行 · WASD 移动 · Space 跳跃 · Shift 疾跑",
+      "controls": "点击空白进入场景（鼠标控制方向）· 点击实体查看 · V 行走/飞行 · WASD 移动 · Space 跳跃 · Shift 疾跑",
       "boot": {
         "idle": "正在初始化",
         "fetchingDem": "下载高程数据",
@@ -78,6 +78,76 @@
       "title": "路线俯视图",
       "placeholder": "2D 路线地图",
       "stops": "{count} 个站点"
+    },
+    "inspect": {
+      "close": "关闭拾取",
+      "modelPlaceholder": "3D 模型即将接入。播放将在模型就绪后启用。",
+      "modelPath": "模型路径：{path}",
+      "comingSoon": "内容即将上线",
+      "animation": "动画",
+      "play": "播放",
+      "pause": "暂停",
+      "viewGizmo": "拖动旋转视角，点击坐标轴对齐，点击空白处重置",
+      "axis": {
+        "front": "前视 Y",
+        "back": "后视",
+        "left": "左视",
+        "right": "右视 X",
+        "top": "顶视 Z",
+        "bottom": "底视"
+      },
+      "kind": {
+        "forest": "树林",
+        "bamboo": "竹林",
+        "shrub": "灌木丛",
+        "firefly": "萤火虫群",
+        "bird": "鸟类",
+        "fish": "鱼类",
+        "landmark": "地标建筑"
+      }
+    }
+  },
+  "pickables": {
+    "forest": "树林",
+    "bamboo": "竹林",
+    "shrub": "灌木丛",
+    "firefly": "萤火虫群",
+    "birds": {
+      "sparrow": "麻雀",
+      "swallow": "家燕",
+      "pigeon": "原鸽",
+      "magpie": "喜鹊",
+      "crow": "乌鸦",
+      "mallard": "绿头鸭",
+      "egret": "白鹭",
+      "gull": "银鸥",
+      "goose": "鸿雁",
+      "kestrel": "红隼",
+      "eagleOwl": "雕鸮",
+      "snowyOwl": "雪鸮"
+    },
+    "fish": {
+      "grassCarp": "草鱼",
+      "blackCarp": "青鱼",
+      "silverCarp": "鲢鱼",
+      "bigheadCarp": "鳙鱼",
+      "commonCarp": "鲤鱼",
+      "crucian": "鲫鱼",
+      "bass": "鲈鱼",
+      "koi": "锦鲤",
+      "bream": "鳊鱼",
+      "skygazer": "翘嘴鲌",
+      "mandarin": "鳜鱼",
+      "yellowCatfish": "黄颡鱼"
+    },
+    "landmarks": {
+      "tianfuSquare": "天府广场",
+      "kuanzhaiAlley": "宽窄巷子",
+      "bellTower": "钟楼",
+      "xianCityWall": "西安城墙",
+      "potala": "布达拉宫",
+      "jokhang": "大昭寺",
+      "colosseum": "斗兽场"
     }
   }
 }

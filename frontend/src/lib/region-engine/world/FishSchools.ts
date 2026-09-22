@@ -67,6 +67,7 @@ import {
 } from "../render/fields";
 import type { WorldFields } from "../types";
 import { makeRng } from "../veg/treeBuilder";
+import type { FishSpeciesId } from "./fishSpecies";
 
 // ---------------------------------------------------------------------------
 // 鱼种定义
@@ -75,6 +76,7 @@ import { makeRng } from "../veg/treeBuilder";
 type Formation = "column" | "ball" | "mill" | "layer" | "pack";
 
 type SpeciesDef = {
+  id: FishSpeciesId;
   name: string;
   /** 体长范围 m */
   len: [number, number];
@@ -103,6 +105,7 @@ type SpeciesDef = {
 
 const SPECIES: SpeciesDef[] = [
   {
+    id: "grass-carp",
     name: "草鱼",
     len: [0.5, 0.85],
     heightK: [0.92, 1.02],
@@ -121,6 +124,7 @@ const SPECIES: SpeciesDef[] = [
     rim: 0.85,
   },
   {
+    id: "black-carp",
     name: "青鱼",
     len: [0.6, 1.0],
     heightK: [0.95, 1.05],
@@ -139,6 +143,7 @@ const SPECIES: SpeciesDef[] = [
     rim: 0.7,
   },
   {
+    id: "silver-carp",
     name: "鲢鱼",
     len: [0.45, 0.7],
     heightK: [1.05, 1.18],
@@ -157,6 +162,7 @@ const SPECIES: SpeciesDef[] = [
     rim: 0.55,
   },
   {
+    id: "bighead-carp",
     name: "鳙鱼",
     len: [0.55, 0.85],
     heightK: [1.12, 1.25],
@@ -175,6 +181,7 @@ const SPECIES: SpeciesDef[] = [
     rim: 0.5,
   },
   {
+    id: "common-carp",
     name: "鲤鱼",
     len: [0.4, 0.7],
     heightK: [1.1, 1.22],
@@ -193,6 +200,7 @@ const SPECIES: SpeciesDef[] = [
     rim: 0.95,
   },
   {
+    id: "crucian",
     name: "鲫鱼",
     len: [0.15, 0.28],
     heightK: [1.15, 1.3],
@@ -211,6 +219,7 @@ const SPECIES: SpeciesDef[] = [
     rim: 0.7,
   },
   {
+    id: "bass",
     name: "鲈鱼",
     len: [0.3, 0.5],
     heightK: [1.0, 1.1],
@@ -229,6 +238,7 @@ const SPECIES: SpeciesDef[] = [
     rim: 0.45,
   },
   {
+    id: "koi",
     name: "锦鲤",
     len: [0.35, 0.6],
     heightK: [1.08, 1.2],
@@ -247,6 +257,7 @@ const SPECIES: SpeciesDef[] = [
     rim: 0.6,
   },
   {
+    id: "bream",
     name: "鳊鱼",
     len: [0.3, 0.5],
     heightK: [1.35, 1.5],
@@ -265,6 +276,7 @@ const SPECIES: SpeciesDef[] = [
     rim: 0.65,
   },
   {
+    id: "skygazer",
     name: "翘嘴鲌",
     len: [0.35, 0.65],
     heightK: [0.78, 0.88],
@@ -283,6 +295,7 @@ const SPECIES: SpeciesDef[] = [
     rim: 0.5,
   },
   {
+    id: "mandarin",
     name: "鳜鱼",
     len: [0.25, 0.45],
     heightK: [1.15, 1.28],
@@ -301,6 +314,7 @@ const SPECIES: SpeciesDef[] = [
     rim: 0.3,
   },
   {
+    id: "yellow-catfish",
     name: "黄颡鱼",
     len: [0.15, 0.3],
     heightK: [0.95, 1.05],
@@ -2513,16 +2527,42 @@ function createBeacons(env: EnvState, schools: SchoolCfg[]): Mesh {
 // 总装
 // ---------------------------------------------------------------------------
 
+export type FishSchoolAnchor = {
+  speciesId: FishSpeciesId;
+  x: number;
+  y: number;
+  z: number;
+  waterY: number;
+  beacon: boolean;
+};
+
+export type FishSchoolsSys = {
+  group: Group;
+  schools: FishSchoolAnchor[];
+};
+
 export function createFishSchools(
   tex: WorldTextures,
   env: EnvState,
   fields: WorldFields,
-): Group {
+): FishSchoolsSys {
   const group = new Group();
+  group.name = "fish-schools";
+  const idle: FishSchoolsSys = { group, schools: [] };
   const spots = pickFishSpots(fields);
-  if (spots.length === 0) return group;
+  if (spots.length === 0) return idle;
   const schools = buildSchools(spots, makeRng(20260816));
   group.add(createFishMesh(tex, env, schools));
   group.add(createBeacons(env, schools.filter((s) => s.beacon)));
-  return group;
+  return {
+    group,
+    schools: schools.map((sc) => ({
+      speciesId: sc.spec.id,
+      x: sc.spot.x,
+      y: sc.y,
+      z: sc.spot.z,
+      waterY: sc.spot.wy,
+      beacon: sc.beacon,
+    })),
+  };
 }
