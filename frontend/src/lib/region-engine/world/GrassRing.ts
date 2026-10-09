@@ -47,7 +47,7 @@ import {
 import { fbm2, hash2 } from "../gpu/noise";
 import type { NF, NV2, NV3, NV4 } from "../gpu/tsl-types";
 import type { EnvState } from "../render/env";
-import { sampleFloatBilinear, type WorldTextures } from "../render/fields";
+import { sampleFloatBilinear, sampleWaterLevel, type WorldTextures } from "../render/fields";
 
 // g0 近景:细格 + 真叶片簇;g1 中景:粗格 + 宽草丛卡
 const G0_R = 24;
@@ -64,7 +64,7 @@ const BAND = 7;
 // ---------------------------------------------------------------------------
 
 /** 单叶片:锥形 N 段条带,内建弯折;弧面法线让平片像半圆柱受光 */
-function grassBladeGeometry(SEG = 3): BufferGeometry {
+export function grassBladeGeometry(SEG = 3): BufferGeometry {
   const pos: number[] = [];
   const nrm: number[] = [];
   const uvA: number[] = [];
@@ -105,7 +105,7 @@ function grassBladeGeometry(SEG = 3): BufferGeometry {
  * 一实例 N 叶簇 —— 近景茂密感的关键:逐像素叶片交叠才读作"厚草",
  * 单根细叶无论密度多高在步行距离都读作稀疏(LAAS 注)。
  */
-function bladeClump(blades: number, segs: number): BufferGeometry {
+export function bladeClump(blades: number, segs: number): BufferGeometry {
   let s = 1234567 + blades * 77 + segs * 13;
   const rnd = (): number => {
     s = (s * 1664525 + 1013904223) >>> 0;
@@ -148,7 +148,7 @@ function bladeClump(blades: number, segs: number): BufferGeometry {
 }
 
 /** 三张交叉宽叶卡 —— 中景草丛(≈一小簇合成一卡) */
-function tuftGeometry(W = 0.055): BufferGeometry {
+export function tuftGeometry(W = 0.055): BufferGeometry {
   const pos: number[] = [];
   const nrm: number[] = [];
   const uvA: number[] = [];
@@ -231,7 +231,8 @@ function grassLayerMaterial(
   const bio = textureLoad(tex.biomeTex, ivec2(ix, iy)).toVar(); // r=id g=snow b=veg a=moist
   const msk = textureLoad(tex.maskTex, ivec2(ix, iy)).toVar(); // r=forest g=farm b=urban a=sand
   const fld = textureLoad(tex.fieldsTex, ivec2(ix, iy)).toVar(); // b=riverProfile a=lake
-  const waterY = textureLoad(tex.waterTex, ivec2(ix, iy)).x;
+  // 外扩水位:与水面网格同源,低岸被淹没处不长草
+  const wl = sampleWaterLevel(tex.waterExtTex, wpos, res, size);
   // 地形法线(有限差分,texel 步长)
   const e = size / res;
   const hX = sampleFloatBilinear(tex.heightTex, wpos.add(vec2(e, 0)), res, size);
@@ -240,7 +241,7 @@ function grassLayerMaterial(
   const slope = tNrm.y.oneMinus().mul(2.4).clamp(0, 1);
 
   // ---- 密度门控(0..1)与存活判定 ----
-  const above = h.sub(waterY); // waterY=WATER_NONE(-1e4) 时恒为正
+  const above = wl.valid.greaterThan(0.5).select(h.sub(wl.y), float(99));
   const bank = smoothstep(0.05, 0.45, above).mul(
     fld.z.smoothstep(0.2, 0.9).mul(0.8).oneMinus(), // 河床冲刷带变稀
   );

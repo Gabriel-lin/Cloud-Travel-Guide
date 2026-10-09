@@ -24,6 +24,7 @@ import { createProjector, type Projector } from "../geo/project";
 import { rasterizeMasks } from "../geo/rasterize";
 import { runWorldPipeline } from "../gpu/pipeline";
 import type { GroundProbe } from "../camera/WalkFlyRig";
+import { buildTrailTexture, clearTourCorridor } from "../nav/corridor";
 import { generateTour } from "../nav/generatePath";
 import { createPathRibbon, type PathRibbon } from "../nav/PathRibbon";
 import type { RegionTour } from "../nav/types";
@@ -44,7 +45,7 @@ import type { WorldLandmark } from "../pick/landmarks";
 import type { PickedEntity } from "../pick/types";
 import { createBirdFlocks, type BirdFlocksSys } from "./BirdFlocks";
 import { createBuildings } from "./Buildings";
-import { createGrassRing } from "./GrassRing";
+import { createGrass, type GrassSystem } from "./GrassField";
 import { createOuterApron } from "./OuterApron";
 import { createAmbientParticles, createFireflies, createMarineSnow } from "./Particles";
 import { TerrainTiles } from "./TerrainTiles";
@@ -69,6 +70,7 @@ export class RegionWorld {
 
   private terrain!: TerrainTiles;
   private vegetation!: Vegetation;
+  private grass: GrassSystem | null = null;
   private sky!: ReturnType<typeof createSkyDome>;
   private sun!: DirectionalLight;
   private hemi!: HemisphereLight;
@@ -132,6 +134,19 @@ export class RegionWorld {
       env.nightK.value = params.timeOfDay === "night" ? 1 : 0;
 
       const scatter = scatterWorld(fields);
+
+      // 路线先于植被/草地:走廊上的树木灌丛清走,草地沿步道踩出痕迹
+      onProgress({ status: "building", value: 0.77, detail: "tour" });
+      let trail = buildTrailTexture(null, fields.res, fields.size);
+      try {
+        world.tour = generateTour(fields, osm.rivers, osm.buildings, scatter);
+        clearTourCorridor(scatter, world.tour, fields.size);
+        trail = buildTrailTexture(world.tour, fields.res, fields.size);
+      } catch (err) {
+        console.warn("[region-engine] tour path skipped", err);
+        world.tour = null;
+      }
+
       const tex = buildWorldTextures(fields);
 
       onProgress({ status: "building", value: 0.8, detail: "terrain" });
@@ -140,7 +155,8 @@ export class RegionWorld {
       });
       world.group.add(world.terrain.mesh);
       world.group.add(createWaterSurface(tex, env));
-      world.group.add(createGrassRing(tex, env));
+      world.grass = createGrass(renderer, tex, env, { gpuCompute, trail });
+      world.group.add(world.grass.group);
       // 水生细节:岸边芦苇、荇菜浮叶/黄花、水下水草、河床沙石、深水鱼群
       const waterFlora = createWaterFlora(tex, env, fields);
       world.group.add(waterFlora.group);
@@ -208,15 +224,10 @@ export class RegionWorld {
           console.warn("[region-engine] outer apron unavailable", err);
         });
 
-      onProgress({ status: "building", value: 0.97, detail: "tour" });
-      try {
-        world.tour = generateTour(fields, osm.rivers, osm.buildings, scatter);
+      if (world.tour) {
         world.pathRibbon = createPathRibbon(world.tour, env);
         world.pathRibbon.group.visible = false;
         world.group.add(world.pathRibbon.group);
-      } catch (err) {
-        console.warn("[region-engine] tour path skipped", err);
-        world.tour = null;
       }
 
       onProgress({ status: "ready", value: 1 });
@@ -246,6 +257,7 @@ export class RegionWorld {
     const step = Math.min(dt, 0.1);
     this.env.update(step);
     this.terrain.update(camera);
+    this.grass?.update(camera);
     this.vegetation.update(camera);
     this.birds?.update(camera);
 
@@ -309,6 +321,8 @@ export class RegionWorld {
     this.pickLayer = null;
     this.pathRibbon?.dispose();
     this.pathRibbon = null;
+    this.grass?.dispose();
+    this.grass = null;
     this.tour = null;
   }
 }

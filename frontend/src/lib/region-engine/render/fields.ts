@@ -27,6 +27,8 @@ export type WorldTextures = {
   waterTex: DataTexture;
   /** 水位向岸外扩 ~4 texel:水面网格藏边、岸线湿痕/青苔带共用 */
   waterExtTex: DataTexture;
+  /** 地形法线 RGBA8 线性过滤:r=x·0.5+0.5 g=y b=z·0.5+0.5(草地剔除/着色单次采样) */
+  normalTex: DataTexture;
   biomeTex: DataTexture;
   maskTex: DataTexture;
   fieldsTex: DataTexture;
@@ -120,7 +122,8 @@ export function dilateWaterY(
 }
 
 export function buildWorldTextures(world: WorldFields): WorldTextures {
-  const { res, size, masks } = world;
+  const { res, size, masks, heights } = world;
+  const texel = size / res;
 
   const biomeTex = rgbaTex(res, (i, px) => {
     px[0] = b((world.biome[i] as number) / 8);
@@ -140,11 +143,27 @@ export function buildWorldTextures(world: WorldFields): WorldTextures {
     px[2] = b(masks.riverProfile[i] as number);
     px[3] = b(masks.water[i] as number);
   });
+  const normalTex = rgbaTex(res, (i, px) => {
+    const x = i % res;
+    const y = (i / res) | 0;
+    const hl = heights[y * res + Math.max(x - 1, 0)] as number;
+    const hr = heights[y * res + Math.min(x + 1, res - 1)] as number;
+    const hd = heights[Math.max(y - 1, 0) * res + x] as number;
+    const hu = heights[Math.min(y + 1, res - 1) * res + x] as number;
+    const nx = (hl - hr) / (2 * texel);
+    const nz = (hd - hu) / (2 * texel);
+    const inv = 1 / Math.hypot(nx, 1, nz);
+    px[0] = b(nx * inv * 0.5 + 0.5);
+    px[1] = b(inv);
+    px[2] = b(nz * inv * 0.5 + 0.5);
+    px[3] = 255;
+  });
 
   return {
     heightTex: floatTex(world.heights, res),
     waterTex: floatTex(world.waterY, res),
     waterExtTex: floatTex(dilateWaterY(world.waterY, res, 4), res),
+    normalTex,
     biomeTex,
     maskTex,
     fieldsTex,

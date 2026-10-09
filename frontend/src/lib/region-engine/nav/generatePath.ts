@@ -1,20 +1,40 @@
 /**
  * 把分型骨架加密成 walk / fly 两条三维折线。
  *
- * walk 贴地。河边用粗骨架 + 近常值岸距,再抽稀、拉直、圆角,少折线;
- * 建筑/植被以全局外推为主,不逐棵绕。其他路绕开实体后同样拉直圆角。
- * fly 同一 XZ(O 型略放大)抬到 45–80 m,并避开建筑足迹。
+ * 水面判定与渲染同源(外扩水位与地形相交处都算水),离水远近用有符号距离场。
+ * 河边:走廊内代价网格 A*(两岸各跑一次取低代价;贴岸带 ≈20 m,近水/水面/
+ *       建筑/陡崖重罚,植被轻罚)→ 视线拉直 → 弹性带平滑 + 约束投影,永不入水。
+ * 湖边:湖心放射到目标岸距成环,同一弹性带收尾。
+ * 其他:骨架绕开实体、弦不过山脊,再交给弹性带(离水 ≥ 8 m)。
+ * fly 同一 XZ(O 型略放大),避开建筑足迹;高度按整条航线定:周边地表 + 净空为下限,
+ * 短下凹填平、限坡爬降 —— 无障碍处保持同一高度,不随地形逐点起伏。
  */
 
-import { CatmullRomCurve3, Vector3 } from "three";
+import { Vector3 } from "three";
 import { rasterizeRings } from "../geo/rasterize";
 import { sampleCpu, sampleWaterCpu } from "../render/fields";
 import type { BuildingFoot, RiverLine, WorldFields } from "../types";
 import { INSTANCE_STRIDE, type ScatterLayer, type ScatterResult } from "../veg/scatter";
 import { classifyRegion } from "./classify";
+import {
+  bankRoute,
+  buildNavField,
+  lakeRing,
+  navCell,
+  relaxBand,
+  resamplePath,
+  type BandOpts,
+  type NavField,
+} from "./navField";
 import type { RegionTour, TourClassification } from "./types";
 
-const FLY_CLEAR = 1.4;
+/** 航线净空:高出两侧 FLY_LATERAL 内最高地表/水面的米数 */
+const FLY_CLEAR_M = 55;
+const FLY_LATERAL = 70;
+/** 短于此长度的下凹直接填平,保持同一高度 */
+const FLY_HOLD_M = 420;
+/** 爬升 / 下降坡度上限 */
+const FLY_GRADE = 0.12;
 const SLOPE_MAX = 0.45;
 /** 当作实体陡崖:超过则绕行,不沿坡面直穿 */
 const CLIFF_SLOPE = 1.05;
@@ -24,13 +44,16 @@ const CLEAR_M = 6;
 const HILL_CHORD_M = 4.2;
 const A_STAR_PAD = 180;
 const A_STAR_CAP = 14_000;
-/** 河边路径离水缘的干岸距离(米) */
-const SHORE_STANDOFF = 16;
+/** 贴岸带:目标 / 最近 / 最远离水距离(米,自可见水缘起算) */
+const BANK_TARGET = 20;
+const BANK_MIN = 10;
+const BANK_MAX = 46;
+/** 非水边路线离水最近距离 */
+const DRY_MIN = 8;
+/** 短于此长度的路线视为退化(塌成一点/一小段),换下一种生成方式 */
+const MIN_TOUR_M = 300;
 /** 步行折线贴地抬高,丝带再叠一点,避免陷入地表 */
 const GROUND_LIFT = 0.08;
-/** 全局抽稀:小于此偏离的弯折视为噪声 */
-const RDP_EPS = 22;
-const RIVER_SPINE_EPS = 32;
 
 type Xz = { x: number; z: number };
 
@@ -39,16 +62,13 @@ type Sampler = {
   size: number;
   half: number;
   texel: number;
+  nav: NavField;
   height: (x: number, z: number) => number;
   water: (x: number, z: number) => number;
   slope: (x: number, z: number) => number;
   urban: (x: number, z: number) => number;
-  /** 步行实体:建筑 / 植被 / 水 / 陡崖 */
+  /** 步行实体:建筑避让带 / 可见水面 / 陡崖 */
   walkSolid: (x: number, z: number) => boolean;
-  /** 仅建筑足迹(河边贴岸时用来绕楼,不把水面当障碍) */
-  builtSolid: (x: number, z: number) => boolean;
-  /** 树木 / 灌木冠幅 */
-  plantSolid: (x: number, z: number) => boolean;
   /** 飞行实体:建筑体积 */
   flySolid: (x: number, z: number) => boolean;
 };
@@ -134,36 +154,26 @@ function bakeSolids(
   fields: WorldFields,
   buildings: BuildingFoot[],
   scatter: ScatterResult | null,
-): {
-  walk: Uint8Array;
-  fly: Uint8Array;
-  plant: Uint8Array;
-} {
-  const { res, size, heights, waterY } = fields;
+): { walk: Uint8Array; fly: Uint8Array; nav: NavField } {
+  const { res, size } = fields;
   const n = res * res;
-  const rings = buildings.map((b) => b.ring);
-  const built = dilateMask(rasterizeRings(rings, res, size), res, Math.max(1, Math.round(CLEAR_M / (size / res))));
+  const raster = rasterizeRings(
+    buildings.map((b) => b.ring),
+    res,
+    size,
+  );
+  const foot = dilateMask(raster, res, 0);
+  const built = dilateMask(raster, res, Math.max(1, Math.round(CLEAR_M / (size / res))));
   const plant = stampPlants(scatter, res, size);
+  const nav = buildNavField(fields, foot, built, plant, CLIFF_SLOPE);
   const walk = new Uint8Array(n);
   const fly = new Uint8Array(n);
-  const texel = size / res;
-  for (let z = 0; z < res; z++) {
-    for (let x = 0; x < res; x++) {
-      const i = z * res + x;
-      const h = heights[i] as number;
-      const w = waterY[i] as number;
-      const hx = x < res - 1 ? (heights[i + 1] as number) : h;
-      const hz = z < res - 1 ? (heights[i + res] as number) : h;
-      const slope = Math.hypot(hx - h, hz - h) / texel;
-      const wetCell = Number.isFinite(w) && w > h + 0.05;
-      const bld = built[i] === 1;
-      const veg = plant[i] === 1;
-      const cliff = slope > CLIFF_SLOPE;
-      fly[i] = bld ? 1 : 0;
-      walk[i] = bld || veg || wetCell || cliff ? 1 : 0;
-    }
+  for (let i = 0; i < n; i++) {
+    const bld = built[i] === 1;
+    fly[i] = bld ? 1 : 0;
+    walk[i] = bld || nav.water[i] === 1 || nav.cliff[i] === 1 ? 1 : 0;
   }
-  return { walk, fly, plant };
+  return { walk, fly, nav };
 }
 
 function makeSampler(
@@ -179,6 +189,7 @@ function makeSampler(
     size,
     half: size / 2,
     texel,
+    nav: solids.nav,
     height: (x, z) => sampleCpu(heights, x, z, res, size),
     water: (x, z) => sampleWaterCpu(waterY, x, z, res, size),
     slope: (x, z) => {
@@ -192,8 +203,6 @@ function makeSampler(
     },
     urban: (x, z) => sampleCpu(masks.urban, x, z, res, size),
     walkSolid: (x, z) => sampleSolid(solids.walk, x, z, res, size),
-    builtSolid: (x, z) => sampleSolid(solids.fly, x, z, res, size),
-    plantSolid: (x, z) => sampleSolid(solids.plant, x, z, res, size),
     flySolid: (x, z) => sampleSolid(solids.fly, x, z, res, size),
   };
 }
@@ -206,10 +215,9 @@ function clampXZ(p: Xz, half: number): Xz {
   };
 }
 
+/** 可见水面(与渲染一致,含低岸被外扩水位淹没的部分) */
 function wet(s: Sampler, x: number, z: number): boolean {
-  const g = s.height(x, z);
-  const w = s.water(x, z);
-  return Number.isFinite(w) && w > g + 0.05;
+  return s.nav.water[navCell(s.nav, x, z)] === 1;
 }
 
 function score(s: Sampler, x: number, z: number): number {
@@ -238,273 +246,6 @@ function landNormal(spine: Xz[], i: number, sign: number): Xz {
   return { x: -t.z * sign, z: t.x * sign };
 }
 
-function bankLookScore(s: Sampler, x: number, z: number): number {
-  if (wet(s, x, z)) return -900;
-  if (s.builtSolid(x, z)) return -400;
-  if (s.slope(x, z) > CLIFF_SLOPE) return -350;
-  let v = 0;
-  if (s.plantSolid(x, z)) v -= 28;
-  v -= Math.max(0, s.slope(x, z) - SLOPE_MAX) * 80;
-  if (s.urban(x, z) > 0.55) v -= 18;
-  return v;
-}
-
-function pickBankSign(spine: Xz[], s: Sampler): number {
-  let left = 0;
-  let right = 0;
-  const d = 40;
-  const stride = Math.max(1, (spine.length / 14) | 0);
-  for (let i = 0; i < spine.length; i += stride) {
-    const p = spine[i]!;
-    const nL = landNormal(spine, i, 1);
-    const nR = landNormal(spine, i, -1);
-    left += bankLookScore(s, p.x + nL.x * d, p.z + nL.z * d);
-    right += bankLookScore(s, p.x + nR.x * d, p.z + nR.z * d);
-  }
-  return left >= right ? 1 : -1;
-}
-
-function smoothPolyline(pts: Xz[], passes: number, loop = false): Xz[] {
-  if (pts.length < 3 || passes <= 0) return pts.map((p) => ({ ...p }));
-  let cur = pts.map((p) => ({ ...p }));
-  for (let p = 0; p < passes; p++) {
-    const next = cur.map((q) => ({ ...q }));
-    const n = cur.length;
-    const start = loop ? 0 : 1;
-    const end = loop ? n : n - 1;
-    for (let i = start; i < end; i++) {
-      const a = cur[(i - 1 + n) % n]!;
-      const b = cur[i]!;
-      const c = cur[(i + 1) % n]!;
-      next[i] = { x: b.x * 0.5 + (a.x + c.x) * 0.25, z: b.z * 0.5 + (a.z + c.z) * 0.25 };
-    }
-    cur = next;
-  }
-  return cur;
-}
-
-function smoothedNormals(spine: Xz[], sign: number): Xz[] {
-  const out = spine.map((_, i) => landNormal(spine, i, sign));
-  for (let pass = 0; pass < 6; pass++) {
-    const next = out.map((n) => ({ ...n }));
-    for (let i = 1; i < out.length - 1; i++) {
-      const a = out[i - 1]!;
-      const b = out[i]!;
-      const c = out[i + 1]!;
-      const x = a.x + b.x + c.x;
-      const z = a.z + b.z + c.z;
-      const len = Math.hypot(x, z) || 1;
-      next[i] = { x: x / len, z: z / len };
-    }
-    for (let i = 0; i < out.length; i++) out[i] = next[i]!;
-  }
-  return out;
-}
-
-function firstDryDist(p: Xz, n: Xz, s: Sampler, step: number): number {
-  let d = 0;
-  let dryRun = 0;
-  let firstDry = 0;
-  while (d <= 120) {
-    if (!wet(s, p.x + n.x * d, p.z + n.z * d)) {
-      if (dryRun === 0) firstDry = d;
-      dryRun++;
-      if (dryRun >= 2) return firstDry;
-    } else {
-      dryRun = 0;
-    }
-    d += step;
-  }
-  return firstDry;
-}
-
-function median(ds: Float64Array): number {
-  const b = Array.from(ds).sort((a, c) => a - c);
-  return b[b.length >> 1] as number;
-}
-
-function boxSmooth(ds: Float64Array, passes: number): void {
-  const n = ds.length;
-  if (n < 3) return;
-  const tmp = new Float64Array(n);
-  for (let p = 0; p < passes; p++) {
-    tmp[0] = ds[0] as number;
-    tmp[n - 1] = ds[n - 1] as number;
-    for (let i = 1; i < n - 1; i++) {
-      tmp[i] = (ds[i - 1] as number) * 0.25 + (ds[i] as number) * 0.5 + (ds[i + 1] as number) * 0.25;
-    }
-    ds.set(tmp);
-  }
-}
-
-function dilate1d(ds: Float64Array, radius: number): void {
-  const n = ds.length;
-  if (n === 0 || radius <= 0) return;
-  const src = new Float64Array(ds);
-  for (let i = 0; i < n; i++) {
-    let m = src[i] as number;
-    for (let k = 1; k <= radius; k++) {
-      if (i - k >= 0) m = Math.max(m, src[i - k] as number);
-      if (i + k < n) m = Math.max(m, src[i + k] as number);
-    }
-    ds[i] = m;
-  }
-}
-
-function percentile(ds: Float64Array, p: number): number {
-  if (ds.length === 0) return 0;
-  const b = Array.from(ds).sort((a, c) => a - c);
-  const i = Math.min(b.length - 1, Math.max(0, Math.round(p * (b.length - 1))));
-  return b[i] as number;
-}
-
-function distPointSeg(p: Xz, a: Xz, b: Xz): number {
-  const dx = b.x - a.x;
-  const dz = b.z - a.z;
-  const len2 = dx * dx + dz * dz;
-  if (len2 < 1e-8) return Math.hypot(p.x - a.x, p.z - a.z);
-  const t = Math.min(1, Math.max(0, ((p.x - a.x) * dx + (p.z - a.z) * dz) / len2));
-  return Math.hypot(p.x - (a.x + dx * t), p.z - (a.z + dz * t));
-}
-
-function rdpSimplify(pts: Xz[], eps: number, blocked: (a: Xz, b: Xz) => boolean): Xz[] {
-  if (pts.length < 3) return pts.map((p) => ({ ...p }));
-  const keep = new Uint8Array(pts.length);
-  keep[0] = 1;
-  keep[pts.length - 1] = 1;
-  const rec = (i0: number, i1: number): void => {
-    if (i1 <= i0 + 1) return;
-    let maxD = -1;
-    let maxI = i0 + 1;
-    const a = pts[i0]!;
-    const b = pts[i1]!;
-    for (let i = i0 + 1; i < i1; i++) {
-      const d = distPointSeg(pts[i]!, a, b);
-      if (d > maxD) {
-        maxD = d;
-        maxI = i;
-      }
-    }
-    if (maxD > eps || blocked(a, b)) {
-      keep[maxI] = 1;
-      rec(i0, maxI);
-      rec(maxI, i1);
-    }
-  };
-  rec(0, pts.length - 1);
-  const out: Xz[] = [];
-  for (let i = 0; i < pts.length; i++) if (keep[i]) out.push({ ...pts[i]! });
-  return out.length >= 2 ? out : pts.map((p) => ({ ...p }));
-}
-
-function chaikin(pts: Xz[], passes: number, loop: boolean): Xz[] {
-  if (pts.length < 3 || passes <= 0) return pts.map((p) => ({ ...p }));
-  let cur = pts.map((p) => ({ ...p }));
-  for (let p = 0; p < passes; p++) {
-    const next: Xz[] = [];
-    const n = cur.length;
-    const last = loop ? n : n - 1;
-    if (!loop) next.push({ ...cur[0]! });
-    for (let i = 0; i < last; i++) {
-      const a = cur[i]!;
-      const b = cur[(i + 1) % n]!;
-      next.push({ x: a.x * 0.75 + b.x * 0.25, z: a.z * 0.75 + b.z * 0.25 });
-      next.push({ x: a.x * 0.25 + b.x * 0.75, z: a.z * 0.25 + b.z * 0.75 });
-    }
-    if (!loop) next.push({ ...cur[n - 1]! });
-    cur = next;
-  }
-  return cur;
-}
-
-function riverHard(s: Sampler, x: number, z: number): boolean {
-  return wet(s, x, z) || s.builtSolid(x, z);
-}
-
-/**
- * 贴岸:粗骨架平行偏移。岸距近常值,植被用全局外推,禁止逐点折绕。
- */
-function followRiverBank(s: Sampler, spineIn: Xz[], bankHint: number): Xz[] {
-  let spine = rdpSimplify(spineIn, RIVER_SPINE_EPS, () => false);
-  spine = resampleOpen(spine, 24);
-  if (spine.length < 3) spine = spineIn.map((p) => ({ ...p }));
-  spine = smoothPolyline(spine, 8);
-  const sign = pickBankSign(spine, s);
-  const nrm = smoothedNormals(spine, sign);
-  const step = Math.max(s.texel * 0.5, 1.5);
-  const minD = Math.max(SHORE_STANDOFF, Math.min(Math.max(bankHint, 8) * 0.4, 14));
-  const base = new Float64Array(spine.length);
-  const extra = new Float64Array(spine.length);
-  for (let i = 0; i < spine.length; i++) {
-    const p = spine[i]!;
-    const n = nrm[i]!;
-    let d = firstDryDist(p, n, s, step) + SHORE_STANDOFF;
-    d = Math.min(Math.max(d, minD), 100);
-    base[i] = d;
-    let e = 0;
-    while (
-      e < 36 &&
-      (s.builtSolid(p.x + n.x * (d + e), p.z + n.z * (d + e)) ||
-        s.plantSolid(p.x + n.x * (d + e), p.z + n.z * (d + e)))
-    ) {
-      e += step;
-    }
-    extra[i] = e;
-  }
-  boxSmooth(base, 10);
-  const gExtra = percentile(extra, 0.6);
-  const resid = new Float64Array(spine.length);
-  for (let i = 0; i < extra.length; i++) {
-    resid[i] = Math.min(Math.max((extra[i] as number) - gExtra, 0), 10);
-  }
-  dilate1d(resid, 2);
-  boxSmooth(resid, 8);
-  const ds = new Float64Array(spine.length);
-  for (let i = 0; i < ds.length; i++) {
-    ds[i] = (base[i] as number) + gExtra + (resid[i] as number);
-  }
-  const med = Math.max(median(ds), minD);
-  for (let i = 0; i < ds.length; i++) {
-    ds[i] = Math.min(Math.max(ds[i] as number, med * 0.9), med * 1.12);
-  }
-  boxSmooth(ds, 5);
-
-  const place = (): Xz[] => {
-    const out: Xz[] = [];
-    for (let i = 0; i < spine.length; i++) {
-      const p = spine[i]!;
-      const n = nrm[i]!;
-      const d = ds[i] as number;
-      out.push(clampXZ({ x: p.x + n.x * d, z: p.z + n.z * d }, s.half));
-    }
-    return out;
-  };
-
-  let out = place();
-  for (let iter = 0; iter < 3; iter++) {
-    const bump = new Float64Array(ds.length);
-    let hits = 0;
-    for (let i = 0; i < out.length; i++) {
-      const q = out[i]!;
-      if (riverHard(s, q.x, q.z)) {
-        bump[i] = 6;
-        hits++;
-      }
-    }
-    if (hits === 0) break;
-    dilate1d(bump, 2);
-    boxSmooth(bump, 4);
-    for (let i = 0; i < ds.length; i++) ds[i] = (ds[i] as number) + (bump[i] as number);
-    out = place();
-  }
-
-  const hard = (x: number, z: number) => riverHard(s, x, z);
-  let xz = stringPull(s, out, hard, false);
-  xz = rdpSimplify(xz, RDP_EPS, (a, b) => solidBetween(s, a, b, hard, false));
-  if (xz.length < 2) xz = out;
-  return denseCurve(xz, false);
-}
-
 function resampleOpen(pts: Xz[], spacing: number): Xz[] {
   if (pts.length < 2) return pts.map((p) => ({ ...p }));
   const seg = [0];
@@ -530,6 +271,26 @@ function resampleOpen(pts: Xz[], spacing: number): Xz[] {
     out.push({ x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t });
   }
   return out;
+}
+
+/** 河岸 A* 失败时的退路:河心整体平移到较干一侧,再交给弹性带收进贴岸带 */
+function offsetRiverSpine(s: Sampler, spine: Xz[], offset: number): Xz[] {
+  const pts = resampleOpen(spine, 20);
+  let best = pts;
+  let bestDry = -1;
+  for (const side of [1, -1]) {
+    const cand = pts.map((p, i) => {
+      const n = landNormal(pts, i, side);
+      return clampXZ({ x: p.x + n.x * offset, z: p.z + n.z * offset }, s.half);
+    });
+    let dry = 0;
+    for (const q of cand) if (!s.walkSolid(q.x, q.z)) dry++;
+    if (dry > bestDry) {
+      bestDry = dry;
+      best = cand;
+    }
+  }
+  return best;
 }
 
 function ellipseRing(cls: TourClassification, count: number, scale: number): Xz[] {
@@ -602,48 +363,86 @@ function relaxLoop(pts: Xz[], s: Sampler, anchor: Xz, rMin: number, rMax: number
   return next;
 }
 
-function denseCurve(ctrl: Xz[], closed: boolean): Xz[] {
-  if (ctrl.length < 2) return ctrl.map((p) => ({ ...p }));
-  let pts = ctrl;
-  if (pts.length === 2) {
-    const a = pts[0]!;
-    const b = pts[1]!;
-    pts = [a, { x: (a.x + b.x) * 0.5, z: (a.z + b.z) * 0.5 }, b];
+/** 航线安全下限:两圈 16 个采样点 + 中心的最高地表/水面 + 净空 */
+function flyFloor(s: Sampler, x: number, z: number): number {
+  let m = -Infinity;
+  const take = (px: number, pz: number): void => {
+    m = Math.max(m, s.height(px, pz));
+    const w = s.water(px, pz);
+    if (Number.isFinite(w)) m = Math.max(m, w);
+  };
+  take(x, z);
+  for (const [r, phase] of [
+    [FLY_LATERAL * 0.5, 0],
+    [FLY_LATERAL, Math.PI / 8],
+  ] as const) {
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2 + phase;
+      take(x + Math.cos(a) * r, z + Math.sin(a) * r);
+    }
   }
-  const vecs = pts.map((p) => new Vector3(p.x, 0, p.z));
-  const curve = new CatmullRomCurve3(vecs, closed, "centripetal");
-  const len = Math.max(curve.getLength(), 1);
-  const n = Math.min(Math.max(closed ? 72 : 36, Math.round(len / 14)), 640);
-  return curve.getSpacedPoints(n).map((v) => ({ x: v.x, z: v.z }));
+  return m + FLY_CLEAR_M;
 }
 
-function maxGroundNear(s: Sampler, x: number, z: number, radius: number): number {
-  let m = s.height(x, z);
-  const w = s.water(x, z);
-  if (Number.isFinite(w)) m = Math.max(m, w);
-  for (let k = 0; k < 8; k++) {
-    const a = (k / 8) * Math.PI * 2;
-    const hx = x + Math.cos(a) * radius;
-    const hz = z + Math.sin(a) * radius;
-    m = Math.max(m, s.height(hx, hz));
-    const ww = s.water(hx, hz);
-    if (Number.isFinite(ww)) m = Math.max(m, ww);
+function slidingExtreme(src: Float64Array, half: number, loop: boolean, pickMax: boolean): Float64Array {
+  const n = src.length;
+  const out = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    let v = src[i] as number;
+    for (let k = -half; k <= half; k++) {
+      let j = i + k;
+      if (loop) j = ((j % n) + n) % n;
+      else if (j < 0 || j >= n) continue;
+      const u = src[j] as number;
+      v = pickMax ? Math.max(v, u) : Math.min(v, u);
+    }
+    out[i] = v;
   }
-  return m;
+  return out;
 }
 
+/**
+ * 平飞高度剖面:下限先做闭运算(窄于 FLY_HOLD_M 的下凹填平),
+ * 再限坡(只抬不压:提前爬升、缓慢回落),坡道与平台交界抹圆后保底。
+ */
+function flatAltitude(floorArr: number[], pts: Xz[], loop: boolean): Float64Array {
+  const n = floorArr.length;
+  const floor = Float64Array.from(floorArr);
+  if (n < 3) return floor;
+  let total = 0;
+  for (let i = 1; i < n; i++) total += Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.z - pts[i - 1]!.z);
+  const step = Math.max(total / (n - 1), 0.5);
+  const half = Math.max(1, Math.round(FLY_HOLD_M / 2 / step));
+  const y = slidingExtreme(slidingExtreme(floor, half, loop, true), half, loop, false);
+  const dy = FLY_GRADE * step;
+  const limitGrade = (): void => {
+    for (let pass = 0; pass < (loop ? 2 : 1); pass++) {
+      for (let i = 1; i < n; i++) y[i] = Math.max(y[i] as number, (y[i - 1] as number) - dy);
+      if (loop) y[0] = Math.max(y[0] as number, (y[n - 1] as number) - dy);
+      for (let i = n - 2; i >= 0; i--) y[i] = Math.max(y[i] as number, (y[i + 1] as number) - dy);
+      if (loop) y[n - 1] = Math.max(y[n - 1] as number, (y[0] as number) - dy);
+    }
+  };
+  limitGrade();
+  const tmp = new Float64Array(n);
+  for (let pass = 0; pass < 8; pass++) {
+    for (let i = 0; i < n; i++) {
+      const a = loop ? (y[(i - 1 + n) % n] as number) : (y[Math.max(i - 1, 0)] as number);
+      const c = loop ? (y[(i + 1) % n] as number) : (y[Math.min(i + 1, n - 1)] as number);
+      tmp[i] = (y[i] as number) * 0.5 + (a + c) * 0.25;
+    }
+    y.set(tmp);
+  }
+  for (let i = 0; i < n; i++) y[i] = Math.max(y[i] as number, floor[i] as number);
+  limitGrade();
+  return y;
+}
+
+/** 贴地;不得不涉水时(支流渡口)贴可见水面 */
 function walkY(s: Sampler, x: number, z: number): number {
   const g = s.height(x, z);
-  const w = s.water(x, z);
-  const floor = Number.isFinite(w) && w > g ? w : g;
-  return floor + GROUND_LIFT;
-}
-
-function flyY(s: Sampler, x: number, z: number): number {
-  const sl = Math.min(Math.max(s.slope(x, z), 0), 1);
-  const base = maxGroundNear(s, x, z, 56);
-  const clear = 45 + 35 * sl;
-  return Math.max(base + clear, s.height(x, z) + FLY_CLEAR);
+  const lv = s.nav.level[navCell(s.nav, x, z)] as number;
+  return (lv > g ? lv : g) + GROUND_LIFT;
 }
 
 function fallbackS(s: Sampler): Xz[] {
@@ -657,6 +456,16 @@ function fallbackS(s: Sampler): Xz[] {
     });
   }
   return out;
+}
+
+function usable(pts: Xz[] | null, loop: boolean): pts is Xz[] {
+  if (!pts || pts.length < 4) return false;
+  let len = 0;
+  for (let i = 1; i < pts.length; i++) {
+    len += Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.z - pts[i - 1]!.z);
+  }
+  if (loop) len += Math.hypot(pts[0]!.x - pts[pts.length - 1]!.x, pts[0]!.z - pts[pts.length - 1]!.z);
+  return len >= MIN_TOUR_M;
 }
 
 function arcTable(pts: Vector3[], loop: boolean): { cumul: number[]; length: number } {
@@ -872,20 +681,6 @@ function stringPull(s: Sampler, pts: Xz[], solid: SolidFn, checkHill: boolean): 
   return out;
 }
 
-function naturalize(s: Sampler, pts: Xz[], loop: boolean, solid: SolidFn, checkHill: boolean): Xz[] {
-  if (pts.length < 3) return pts.map((p) => ({ ...p }));
-  let xz = stringPull(s, pts, solid, checkHill);
-  xz = rdpSimplify(xz, RDP_EPS, (a, b) => solidBetween(s, a, b, solid, checkHill));
-  if (xz.length < 2) xz = pts.map((p) => ({ ...p }));
-  xz = chaikin(xz, 2, loop);
-  xz = denseCurve(xz, loop);
-  return smoothPolyline(xz, 2, loop);
-}
-
-function simplify(s: Sampler, pts: Xz[], _loop: boolean, solid: SolidFn, checkHill: boolean): Xz[] {
-  return stringPull(s, pts, solid, checkHill);
-}
-
 function steerClear(s: Sampler, pts: Xz[], loop: boolean, solid: SolidFn, checkHill: boolean): Xz[] {
   if (pts.length < 2) return pts.map((p) => nudgeOff(s, p, solid));
   const nudged = pts.map((p) => nudgeOff(s, p, solid));
@@ -920,7 +715,7 @@ function steerClear(s: Sampler, pts: Xz[], loop: boolean, solid: SolidFn, checkH
     const tail = out[out.length - 1]!;
     if (!tail || tail.x !== last.x || tail.z !== last.z) out.push(last);
   }
-  return simplify(s, out.length >= 2 ? out : nudged, loop, solid, checkHill);
+  return stringPull(s, out.length >= 2 ? out : nudged, solid, checkHill);
 }
 
 export function generateTour(
@@ -931,40 +726,57 @@ export function generateTour(
 ): RegionTour {
   const s = makeSampler(fields, buildings, scatter);
   const cls = classifyRegion(fields, rivers);
-  let xz: Xz[];
+  const lim = s.half - MARGIN;
+  const bankBand: BandOpts = { minStand: BANK_MIN, maxStand: BANK_MAX, iters: 60, lim };
+  const dryBand: BandOpts = { minStand: DRY_MIN, maxStand: null, iters: 50, lim };
+  let xz: Xz[] | null = null;
   let loop = cls.kind === "o";
 
   if (cls.kind === "o") {
-    xz = ellipseRing(cls, 24, 1);
-    const rMin = Math.min(cls.radiusX, cls.radiusZ) * 0.72;
-    const rMax = Math.max(cls.radiusX, cls.radiusZ) * 1.28;
-    xz = relaxLoop(xz, s, cls.anchor, rMin, rMax);
-    xz = steerClear(s, xz, true, s.walkSolid, true);
-    xz = naturalize(s, xz, true, s.walkSolid, true);
+    if (cls.feature === "lake") {
+      const ring = lakeRing(s.nav, cls.anchor, Math.max(cls.radiusX, cls.radiusZ) * 1.6 + 120, {
+        target: BANK_TARGET,
+        lim,
+      });
+      const banked = ring ? relaxBand(s.nav, ring, true, bankBand) : null;
+      if (usable(banked, true)) xz = banked;
+    }
+    if (!xz) {
+      let ring = ellipseRing(cls, 24, 1);
+      const rMin = Math.min(cls.radiusX, cls.radiusZ) * 0.72;
+      const rMax = Math.max(cls.radiusX, cls.radiusZ) * 1.28;
+      ring = relaxLoop(ring, s, cls.anchor, rMin, rMax);
+      ring = resamplePath(ring, 26, true);
+      ring = steerClear(s, ring, true, s.walkSolid, true);
+      xz = relaxBand(s.nav, ring, true, dryBand);
+    }
   } else if (cls.feature === "river" && cls.spine.length >= 3) {
-    xz = followRiverBank(s, cls.spine, cls.bank);
-  } else if (cls.spine.length >= 3) {
-    xz = cls.spine.map((p) => clampXZ(p, s.half));
-    xz = relaxOpen(xz, s);
-    xz = resampleOpen(xz, 26);
-    xz = steerClear(s, xz, false, s.walkSolid, true);
-    xz = naturalize(s, xz, false, s.walkSolid, true);
+    xz = bankRoute(s.nav, cls.spine, {
+      target: BANK_TARGET,
+      minStand: BANK_MIN,
+      maxStand: BANK_MAX,
+      lim,
+      bankHint: cls.bank,
+    });
+    if (!usable(xz, false)) {
+      xz = relaxBand(s.nav, offsetRiverSpine(s, cls.spine, cls.bank + BANK_TARGET), false, bankBand);
+    }
   } else {
-    xz = fallbackS(s);
-    xz = relaxOpen(xz, s);
-    xz = steerClear(s, xz, false, s.walkSolid, true);
-    xz = naturalize(s, xz, false, s.walkSolid, true);
+    let open = cls.spine.length >= 3 ? cls.spine.map((p) => clampXZ(p, s.half)) : fallbackS(s);
+    open = relaxOpen(open, s);
+    open = resampleOpen(open, 26);
+    open = steerClear(s, open, false, s.walkSolid, true);
+    xz = relaxBand(s.nav, open, false, dryBand);
   }
 
-  if (xz.length < 4) {
-    xz = fallbackS(s);
+  if (!usable(xz, loop)) {
+    const open = steerClear(s, resampleOpen(fallbackS(s), 26), false, s.walkSolid, true);
+    xz = relaxBand(s.nav, open, false, dryBand);
     loop = false;
-    xz = steerClear(s, xz, false, s.walkSolid, true);
-    xz = naturalize(s, xz, false, s.walkSolid, true);
   }
 
   const walk: Vector3[] = [];
-  const fly: Vector3[] = [];
+  const flyXz: Xz[] = [];
   const flyScale = loop ? 1.12 : 1;
   for (const p of xz) {
     const wc = clampXZ(p, s.half);
@@ -977,10 +789,15 @@ export function generateTour(
           s.half,
         )
       : wc;
-    const fc = nudgeOff(s, rawFly, s.flySolid);
     walk.push(new Vector3(wc.x, walkY(s, wc.x, wc.z), wc.z));
-    fly.push(new Vector3(fc.x, flyY(s, fc.x, fc.z), fc.z));
+    flyXz.push(nudgeOff(s, rawFly, s.flySolid));
   }
+  const alt = flatAltitude(
+    flyXz.map((q) => flyFloor(s, q.x, q.z)),
+    flyXz,
+    loop,
+  );
+  const fly = flyXz.map((q, i) => new Vector3(q.x, alt[i] as number, q.z));
 
   const { cumul, length } = arcTable(walk, loop);
   return {
