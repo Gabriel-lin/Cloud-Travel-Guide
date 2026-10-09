@@ -134,6 +134,8 @@ export function buildVegPool(
     leafK?: number;
     /** 烘焙树皮双贴图(bark 池) */
     barkTex?: BarkTextures;
+    /** bark 池:把顶点色 rgb 当 tint 乘进贴图反照率(竹:秆龄 / 箨鞘 / 竹笋) */
+    vertexTint?: boolean;
     foliageHueVar?: number;
   },
 ): VegPool {
@@ -159,11 +161,12 @@ export function buildVegPool(
 
     const a = texture(opts.barkTex.texA, uv()) as unknown as NV4;
     const b = texture(opts.barkTex.texB, uv()) as unknown as NV4;
-    const albedo = a.rgb.mul(a.rgb); // 烘焙时 sqrt 编码
     const vcol = attribute("color") as unknown as NV4;
+    let albedo = a.rgb.mul(a.rgb) as unknown as NV3; // 烘焙时 sqrt 编码
+    if (opts.vertexTint) albedo = albedo.mul(vcol.rgb) as unknown as NV3;
     // 干基压暗近似枝干 AO(LAAS 用逐顶点烘焙 AO)
     const baseAo = vcol.w.mul(0.3).add(0.7);
-    mat.colorNode = hueShift(albedo as unknown as NV3, hue, 0.14).mul(baseAo);
+    mat.colorNode = hueShift(albedo, hue, 0.14).mul(baseAo);
     mat.aoNode = a.w;
     mat.roughnessNode = b.z;
 

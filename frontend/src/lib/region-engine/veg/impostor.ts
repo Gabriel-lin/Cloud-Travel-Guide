@@ -42,14 +42,22 @@ export async function bakeImpostor(
   cards: BufferGeometry,
   atlas: Texture,
   barkTex: BarkTextures,
-  texSize = 256,
+  opts: {
+    texSize?: number;
+    /** 与近景 bark 材质一致:顶点色 rgb 乘进树皮反照率(竹) */
+    barkVertexTint?: boolean;
+  } = {},
 ): Promise<ImpostorBake> {
+  const texSize = opts.texSize ?? 256;
   const scene = new Scene();
 
   const barkMat = new MeshStandardNodeMaterial();
   const bA = texture(barkTex.texA, uv());
-  const barkAo = (attribute("color") as unknown as NV4).w.mul(0.3).add(0.7);
-  barkMat.colorNode = bA.xyz.mul(bA.xyz).mul(barkAo); // sqrt 解码
+  const vcol = attribute("color") as unknown as NV4;
+  const barkAo = vcol.w.mul(0.3).add(0.7);
+  let barkAlbedo = bA.xyz.mul(bA.xyz); // sqrt 解码
+  if (opts.barkVertexTint) barkAlbedo = barkAlbedo.mul(vcol.xyz);
+  barkMat.colorNode = barkAlbedo.mul(barkAo);
   barkMat.roughness = 0.9;
 
   const cardMat = new MeshBasicNodeMaterial();

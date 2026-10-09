@@ -46,6 +46,7 @@ import {
   type VegInstances,
 } from "../render/vegMaterial";
 import type { WorldFields } from "../types";
+import { buildBambooGeometry } from "../veg/bamboo";
 import { captureFoliageAtlas } from "../veg/foliageAtlas";
 import { bakeImpostor } from "../veg/impostor";
 import {
@@ -145,11 +146,12 @@ export class Vegetation {
       );
       const barkTex = await barkFor(sp.barkStyle);
 
-      // 2. 结构变体 + 近景池
+      // 2. 结构变体 + 近景池(竹类走专用丛生成器)
       const variants: BuiltTree[] = [];
       const pools: NearPool[] = [];
       for (let v = 0; v < VARIANTS_PER_SPECIES; v++) {
-        const built = buildTreeGeometry(sp, v * 7919 + speciesId.length * 131 + 17);
+        const seed = v * 7919 + speciesId.length * 131 + 17;
+        const built = sp.culms ? buildBambooGeometry(sp, seed) : buildTreeGeometry(sp, seed);
         variants.push(built);
         pools.push(this.makeNearPool(built, atlas, barkTex, TREE_POOL_CAP, sp, true));
       }
@@ -157,7 +159,7 @@ export class Vegetation {
 
       // 3. 远景 impostor(变体 0 烘焙,宽高取几何真实包围盒)
       const v0 = variants[0] as BuiltTree;
-      await this.makeImpostors(v0, atlas, barkTex, layer, TREE_MESH_DIST, TREE_FAR_DIST);
+      await this.makeImpostors(v0, atlas, barkTex, layer, TREE_MESH_DIST, TREE_FAR_DIST, sp);
     }
 
     // 灌木(同一套图集卡片方案)
@@ -211,6 +213,7 @@ export class Vegetation {
       flutterAmp: 0,
       leafK: 0,
       barkTex,
+      vertexTint: sp.barkVertexTint,
     });
     const barkMesh = new InstancedMesh(barkPool.geometry, barkPool.material, capacity);
 
@@ -240,8 +243,11 @@ export class Vegetation {
     layer: ScatterLayer,
     nearDist: number,
     farDist: number,
+    sp: SpeciesParams,
   ): Promise<void> {
-    const bake = await bakeImpostor(this.renderer, built.bark, built.cards, atlas, barkTex);
+    const bake = await bakeImpostor(this.renderer, built.bark, built.cards, atlas, barkTex, {
+      barkVertexTint: sp.barkVertexTint,
+    });
     const quad = new PlaneGeometry(1, 1);
     quad.translate(0, 0.5, 0); // 底部锚定
 

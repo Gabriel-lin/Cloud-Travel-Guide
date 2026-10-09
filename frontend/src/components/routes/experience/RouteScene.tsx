@@ -1,51 +1,95 @@
 "use client";
 
 import { PerformanceMonitor, Stats } from "@react-three/drei";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Canvas, events as createPointerEvents, useFrame, useThree } from "@react-three/fiber";
 import { AlertTriangle } from "lucide-react";
 import {
   Component,
   type ReactNode,
-  useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
 import type { PerspectiveCamera } from "three";
-import { WebGPURenderer } from "three/webgpu";
+import { Vector2 } from "three";
+import { WebGPURenderer, type Renderer, type RenderPipeline } from "three/webgpu";
 
 import { useAppLocale } from "@/hooks/use-app-locale";
 import { WalkFlyRig } from "@/lib/region-engine/camera/WalkFlyRig";
 import { useRegionScene } from "@/lib/region-engine/hooks/useRegionScene";
-import type {
-  BootProgress,
-  RegionParams,
-  SceneMode,
-} from "@/lib/region-engine/types";
+import { AutoNavigator } from "@/lib/region-engine/nav/AutoNavigator";
+import type { PickedEntity } from "@/lib/region-engine/pick/types";
+import { projectLandmarks } from "@/lib/region-engine/pick/landmarks";
+import { resolvePointerClick } from "@/lib/region-engine/pick/pointerPolicy";
+import { createRegionPostFX } from "@/lib/region-engine/render/postfx";
+import type { BootProgress, RegionParams } from "@/lib/region-engine/types";
 import { cn } from "@/lib/utils";
 
-import type { RouteExperienceConfig, RouteToolbarState } from "./types";
+import type {
+  RouteExperienceConfig,
+  RouteLandmark,
+  RoutePointerTool,
+  RouteToolbarState,
+  RouteViewMode,
+} from "./types";
 
 export type RouteSceneProps = {
   config: RouteExperienceConfig;
   state: RouteToolbarState;
   /** 当前站点下标（俯视图选中,场景加载该站点的真实地理区域） */
   activeStopIndex?: number;
-  /** 场景内交互(V 键切换模式)同步回工具栏 */
+  /** 场景内状态回写(昼夜等);walk/fly 由 V 键在相机内切换,不改工具栏视角 */
   onStateChange?: (patch: Partial<RouteToolbarState>) => void;
+  /** 光标工具下点击可拾取实体;点空处传 null 退出拾取 */
+  onPick?: (entity: PickedEntity | null) => void;
 };
+
+/**
+ * R3F Canvas 在 WebGPU 异步 init / HMR 卸载后仍可能把 null 传给 events.connect,
+ * 默认实现会直接 target.addEventListener → 整页 Uncaught TypeError。
+ */
+function createSafePointerEvents(
+  store: Parameters<typeof createPointerEvents>[0],
+) {
+  const manager = createPointerEvents(store);
+  const connect = manager.connect?.bind(manager);
+  manager.connect = (target) => {
+    if (!target) return;
+    connect?.(target);
+  };
+  return manager;
+}
 
 /** WebGPU 优先,初始化失败自动回退 WebGL2(三方案见 docs/regional-terrain-engine-plan.md) */
 async function createRenderer(props: unknown): Promise<WebGPURenderer> {
   const base = props as ConstructorParameters<typeof WebGPURenderer>[0];
+  const requiredLimits: Record<string, number> = {};
   try {
-    const renderer = new WebGPURenderer({ ...base, antialias: true });
+    const gpu = (
+      navigator as Navigator & {
+        gpu?: {
+          requestAdapter: () => Promise<{
+            limits: { maxStorageBuffersPerShaderStage: number };
+          } | null>;
+        };
+      }
+    ).gpu;
+    const adapter = await gpu?.requestAdapter();
+    const maxSb = adapter?.limits.maxStorageBuffersPerShaderStage ?? 0;
+    if (maxSb >= 12) {
+      requiredLimits.maxStorageBuffersPerShaderStage = Math.min(maxSb, 16);
+    }
+  } catch {
+    /* adapter 查询失败则走默认限额 */
+  }
+  try {
+    const renderer = new WebGPURenderer({ ...base, antialias: false, requiredLimits });
     await renderer.init();
     return renderer;
   } catch (err) {
     console.warn("[region-engine] WebGPU unavailable, falling back to WebGL2", err);
-    const renderer = new WebGPURenderer({ ...base, antialias: true, forceWebGL: true });
+    const renderer = new WebGPURenderer({ ...base, antialias: false, forceWebGL: true });
     await renderer.init();
     return renderer;
   }
@@ -70,26 +114,41 @@ class SceneErrorBoundary extends Component<
 
 type SceneContentProps = {
   params: RegionParams;
+  autoTour: boolean;
+  viewMode: RouteViewMode;
+  pointerTool: RoutePointerTool;
+  landmarks: readonly RouteLandmark[];
   onProgress: (p: BootProgress) => void;
-  onRigMode: (mode: SceneMode) => void;
+  onPick?: (entity: PickedEntity | null) => void;
 };
 
 /** Canvas 内部:boot 世界 + 相机 rig + 每帧推进 */
-function SceneContent({ params, onProgress, onRigMode }: SceneContentProps) {
+function SceneContent({
+  params,
+  autoTour,
+  viewMode,
+  pointerTool,
+  landmarks,
+  onProgress,
+  onPick,
+}: SceneContentProps) {
   const camera = useThree((s) => s.camera);
   const gl = useThree((s) => s.gl);
   const rigRef = useRef<WalkFlyRig | null>(null);
-  const rigModeCb = useRef(onRigMode);
+  const navRef = useRef<AutoNavigator | null>(null);
+  const ndc = useRef(new Vector2());
+  const onPickRef = useRef(onPick);
 
   const { world } = useRegionScene(params, onProgress);
 
   useEffect(() => {
-    rigModeCb.current = onRigMode;
-  }, [onRigMode]);
+    onPickRef.current = onPick;
+  }, [onPick]);
 
   useEffect(() => {
-    const rig = new WalkFlyRig(camera as PerspectiveCamera, gl.domElement);
-    rig.onModeChange = (mode) => rigModeCb.current(mode);
+    const dom = gl.domElement;
+    if (!dom) return;
+    const rig = new WalkFlyRig(camera as PerspectiveCamera, dom);
     rigRef.current = rig;
     return () => {
       rig.dispose();
@@ -97,25 +156,114 @@ function SceneContent({ params, onProgress, onRigMode }: SceneContentProps) {
     };
   }, [camera, gl]);
 
-  // 世界就绪:安装贴地探针、出生位姿(中心上空俯瞰入场)
+  // 世界就绪:安装贴地探针、出生位姿
   useEffect(() => {
     const rig = rigRef.current;
     if (!world || !rig) return;
     rig.groundProbe = world.groundProbe;
+    rig.setViewMode(viewMode);
+    rig.setPickEnabled(pointerTool === "cursor");
     const spawn = world.spawnPoint();
-    rig.setPose(spawn.x + 140, spawn.y + 220, spawn.z + 300, 0.42, -0.5);
+    if (viewMode === "first-person") {
+      rig.setMode("walk");
+      rig.setPose(spawn.x, spawn.y, spawn.z, 0.2, -0.08);
+    } else {
+      rig.setPose(spawn.x + 140, spawn.y + 220, spawn.z + 300, 0.42, -0.5);
+    }
+    navRef.current = world.tour ? new AutoNavigator(world.tour) : null;
     return () => {
       rig.groundProbe = null;
+      navRef.current = null;
+      world.setTourVisible(false);
     };
+    // 仅在世界重建时重置位姿;视角切换走下方 effect
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- viewMode 不触发重生
   }, [world]);
 
-  // 工具栏视角 → rig 模式(walk 需等待贴地探针)
   useEffect(() => {
-    rigRef.current?.setMode(params.mode);
-  }, [params.mode, world]);
+    rigRef.current?.setViewMode(viewMode);
+  }, [viewMode]);
+
+  useEffect(() => {
+    rigRef.current?.setPickEnabled(pointerTool === "cursor");
+  }, [pointerTool]);
+
+  useEffect(() => {
+    if (!world) return;
+    world.setLandmarks(projectLandmarks(landmarks, world.projector.toLocal.bind(world.projector)));
+  }, [world, landmarks]);
+
+  // 自动导览:相机始终沿路径走;第三人称保留拖动看和高度调节
+  useEffect(() => {
+    const rig = rigRef.current;
+    const nav = navRef.current;
+    if (!world || !rig) return;
+    if (!autoTour || !nav) {
+      rig.setGuided(false);
+      nav?.stop();
+      world.setTourVisible(false);
+      return;
+    }
+    world.setTourVisible(true);
+    world.setTourMode(rig.mode);
+    rig.setGuided(true);
+    if (!nav.active) nav.start(rig.mode, rig.camera.position);
+  }, [autoTour, world]);
+
+  // 浏览器自动播放策略:首次指针/键盘手势解锁 AudioContext
+  useEffect(() => {
+    if (!world) return;
+    return world.sound.installUnlock(gl.domElement);
+  }, [world, gl]);
+
+  useEffect(() => {
+    const dom = gl.domElement;
+    if (!dom || !world) return;
+    const onClick = (e: MouseEvent) => {
+      const rig = rigRef.current;
+      const dragged = rig?.consumeLookDrag() ?? false;
+      const locked = rig?.isLocked ?? false;
+      let hit: PickedEntity | null = null;
+      if (pointerTool === "cursor" && !locked && !dragged) {
+        const rect = dom.getBoundingClientRect();
+        if (rect.width < 1 || rect.height < 1) return;
+        ndc.current.set(
+          ((e.clientX - rect.left) / rect.width) * 2 - 1,
+          -((e.clientY - rect.top) / rect.height) * 2 + 1,
+        );
+        hit = world.pick(camera as PerspectiveCamera, ndc.current);
+      }
+      const action = resolvePointerClick({
+        pointerTool,
+        viewMode,
+        locked,
+        dragged,
+        hit,
+      });
+      if (action.kind === "ignore") return;
+      if (action.kind === "pick") {
+        onPickRef.current?.(action.entity);
+        return;
+      }
+      if (action.clearPick) onPickRef.current?.(null);
+      rig?.requestLookLock();
+    };
+    dom.addEventListener("click", onClick);
+    return () => dom.removeEventListener("click", onClick);
+  }, [gl, world, pointerTool, camera, viewMode]);
 
   useFrame((rootState, dt) => {
-    rigRef.current?.update(dt);
+    const rig = rigRef.current;
+    const nav = navRef.current;
+    if (autoTour && rig?.guided && nav?.active) {
+      const freeLook = viewMode === "third-person";
+      if (freeLook) rig.update(dt);
+      nav.setMode(rig.mode);
+      nav.update(dt, rig, freeLook);
+      world?.setTourMode(rig.mode);
+    } else {
+      rig?.update(dt);
+    }
     world?.update(rootState.camera as PerspectiveCamera, dt);
   });
 
@@ -125,9 +273,43 @@ function SceneContent({ params, onProgress, onRigMode }: SceneContentProps) {
       <primitive object={world.group} />
       {/* 雾挂到 scene.fog(R3F 声明式 attach,昼夜色由 world.update 每帧驱动) */}
       <primitive object={world.fog} attach="fog" />
+      <RegionPostFX />
     </>
   );
 }
+
+/** 全屏 FXAA + 近景反锐化;priority>0 接管 R3F 默认 render */
+function RegionPostFX() {
+  const gl = useThree((s) => s.gl);
+  const scene = useThree((s) => s.scene);
+  const camera = useThree((s) => s.camera);
+  const pipeRef = useRef<RenderPipeline | null>(null);
+
+  useEffect(() => {
+    try {
+      const pipe = createRegionPostFX(gl as unknown as Renderer, scene, camera);
+      pipeRef.current = pipe;
+      return () => {
+        pipe.dispose();
+        pipeRef.current = null;
+      };
+    } catch (err) {
+      console.warn("[region-engine] postfx skipped", err);
+      pipeRef.current = null;
+      return undefined;
+    }
+  }, [gl, scene, camera]);
+
+  useFrame(() => {
+    const pipe = pipeRef.current;
+    if (pipe) pipe.render();
+    else gl.render(scene, camera);
+  }, 1);
+
+  return null;
+}
+
+const EMPTY_LANDMARKS: readonly RouteLandmark[] = [];
 
 const BOOT_LABEL_KEYS: Record<BootProgress["status"], string> = {
   idle: "idle",
@@ -144,13 +326,14 @@ const BOOT_LABEL_KEYS: Record<BootProgress["status"], string> = {
  *
  * R3F Canvas + WebGPU(回退 WebGL2)渲染站点真实地理场景:
  * DEM 地形 + OSM 水系/建筑/土地利用 + 程序化植被/天空/云/粒子。
- * 工具栏映射:第一人称 → walk(贴地),第三人称 → fly;Sun/Moon → 昼夜。
+ * 工具栏第一/第三人称只改观察方式(指针锁定 vs 拖动自由看),与 V 键 walk/fly 无关。
+ * Sun/Moon → 昼夜。
  */
 export function RouteScene({
   config,
   state,
   activeStopIndex = 0,
-  onStateChange,
+  onPick,
 }: RouteSceneProps) {
   const { t } = useAppLocale();
   const [progress, setProgress] = useState<BootProgress>({ status: "idle", value: 0 });
@@ -163,17 +346,10 @@ export function RouteScene({
       lat: stop?.coord.lat ?? 30.57,
       lon: stop?.coord.lon ?? 104.07,
       sizeKm: 4,
-      mode: state.viewMode === "first-person" ? "walk" : "fly",
+      mode: "walk",
       timeOfDay: state.lighting,
     }),
-    [stop, state.viewMode, state.lighting],
-  );
-
-  const handleRigMode = useCallback(
-    (mode: SceneMode) => {
-      onStateChange?.({ viewMode: mode === "walk" ? "first-person" : "third-person" });
-    },
-    [onStateChange],
+    [stop, state.lighting],
   );
 
   const booting = progress.status !== "ready" && progress.status !== "error";
@@ -195,7 +371,11 @@ export function RouteScene({
     <div
       className={cn(
         "absolute inset-0 z-0 overflow-hidden bg-surface-950",
-        state.pointerTool === "hand" ? "cursor-grab" : "cursor-default",
+        state.pointerTool === "cursor"
+          ? "cursor-pointer"
+          : state.pointerTool === "hand" || state.viewMode === "third-person"
+            ? "cursor-grab"
+            : "cursor-default",
       )}
       data-view-mode={state.viewMode}
     >
@@ -203,6 +383,7 @@ export function RouteScene({
         <Canvas
           // WebGPURenderer(异步 init)为 R3F v9 支持的 promise 工厂
           gl={createRenderer as never}
+          events={createSafePointerEvents}
           shadows
           dpr={[0.75, dprMax]}
           camera={{ fov: 62, near: 0.2, far: 30000, position: [140, 220, 300] }}
@@ -214,8 +395,12 @@ export function RouteScene({
           >
             <SceneContent
               params={params}
+              autoTour={state.autoTour}
+              viewMode={state.viewMode}
+              pointerTool={state.pointerTool}
+              landmarks={stop?.landmarks ?? EMPTY_LANDMARKS}
               onProgress={setProgress}
-              onRigMode={handleRigMode}
+              onPick={onPick}
             />
           </PerformanceMonitor>
           {process.env.NODE_ENV === "development" && <Stats />}

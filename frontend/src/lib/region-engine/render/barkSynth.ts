@@ -36,12 +36,16 @@ export const BARK_RES = 1024;
 // 周期性(可平铺)噪声 —— LAAS pnoise / pfbm / pworley 移植
 // ---------------------------------------------------------------------------
 
-/** 包裹整数格点上的 value noise → 以 `period` 平铺 */
-function pnoise(p: NV2, period: number, seedK: number): NF {
+/** 包裹整数格点上的 value noise → 以 `period`(x)/ `periodY`(y,默认同 x)平铺 */
+function pnoise(p: NV2, period: number, seedK: number, periodY = period): NF {
   const cell = p.floor();
   const f = p.fract();
   const u = f.mul(f).mul(f.negate().mul(2).add(3)); // smoothstep fade
-  const wrap = (c: NV2): NV2 => c.sub(c.div(period).floor().mul(period));
+  const wrap = (c: NV2): NV2 =>
+    vec2(
+      c.x.sub(c.x.div(period).floor().mul(period)),
+      c.y.sub(c.y.div(periodY).floor().mul(periodY)),
+    );
   const h = (ox: number, oy: number): NF =>
     hash2(wrap(cell.add(vec2(ox, oy))), seedK);
   const a = h(0, 0);
@@ -114,8 +118,15 @@ export type BarkRecipe = {
   vertCrack: number;
   /** 桦树横向皮孔虚线 */
   lenticels: number;
-  /** 竹节环频率(每 uv 单位;0 = 无) */
+  /**
+   * 竹节带频率(每 uv 单位;0 = 无)。节带位于 v 整数处(几何按节对齐 v):
+   * 节下一道细箨环暗线 + 节上 ~5% 抬高的浅色节内环。
+   */
   rings: number;
+  /** 竹秆疣基刺毛脱落小凹点(稀疏暗点)强度(0/缺省 = 无) */
+  pits?: number;
+  /** 细纵向明暗纹强度(0/缺省 = 无) */
+  streaks?: number;
   deep: [number, number, number];
   high: [number, number, number];
   /** 低频色相斑驳 */
@@ -175,16 +186,51 @@ export const BARK_RECIPES = {
     deep: [0.055, 0.045, 0.036], high: [0.21, 0.17, 0.125], mottle: 0.28,
     roughBase: 0.9, roughVar: 0.07, normalK: 2.4,
   },
-  /** 竹秆:光滑黄绿 + 深色竹节环 */
+  /**
+   * 竹秆(慈竹):蜡质哑光灰绿、近乎光滑,细纵纹 + 稀疏刺毛凹点;
+   * 每 uv 单位一道节带(几何 v = 节序号,与节对齐)。秆龄色差由顶点 tint 提供。
+   */
   bamboo: {
-    plates: [3, 3], warp: 0.15, fissureW: 0.95, fissureDepth: 0.25, plateRound: 0.15,
-    micro: 0.1, vertCrack: 0, lenticels: 0, rings: 7,
-    deep: [0.13, 0.2, 0.07], high: [0.34, 0.44, 0.18], mottle: 0.18,
-    roughBase: 0.55, roughVar: 0.12, normalK: 1.2,
+    plates: [4, 2], warp: 0.2, fissureW: 0.95, fissureDepth: 0.12, plateRound: 0.08,
+    micro: 0.05, vertCrack: 0, lenticels: 0, rings: 1, pits: 1, streaks: 1,
+    deep: [0.23, 0.29, 0.155], high: [0.35, 0.42, 0.235], mottle: 0.14,
+    roughBase: 0.7, roughVar: 0.1, normalK: 1.4,
   },
 } as const satisfies Record<string, BarkRecipe>;
 
 export type BarkStyleKey = keyof typeof BARK_RECIPES;
+
+// ---------------------------------------------------------------------------
+// 竹节带 / 凹点 / 纵纹(高度与反照率共用的遮罩)
+// ---------------------------------------------------------------------------
+
+/**
+ * 节带遮罩(vv = v × rings,节在整数处):
+ *   scar  = 节下 ~1.5% 的箨环细线(暗、微凹)
+ *   intra = 节上 0..5% 的节内环(浅、抬高;慈竹秆环平坦,上缘柔和)
+ * 用未扭曲的 v,保证环笔直。
+ */
+function nodeBands(vv: NF): { scar: NF; intra: NF } {
+  const t = vv.fract();
+  const scar = t.smoothstep(0.976, 0.988).mul(float(1).sub(t.smoothstep(0.994, 1.0)));
+  const intra = t.smoothstep(0.0, 0.005).mul(float(1).sub(t.smoothstep(0.038, 0.06)));
+  return { scar, intra };
+}
+
+/** 稀疏小凹点遮罩(worley 斑点 × 低频选通) */
+function pitMask(uvN: NV2, seedK: number): NF {
+  const w = pworley(uvN.mul(vec2(26, 26)), new Vector2(26, 26), seedK + 313);
+  const dot = float(1).sub(w.f1.smoothstep(0.05, 0.12));
+  const gate = pnoise(uvN.mul(9), 9, seedK + 77).smoothstep(0.5, 0.64);
+  return dot.mul(gate);
+}
+
+/** 细纵向纹理(−0.5..0.5,x 高频、y 低频,双周期可平铺) */
+function streakField(uvN: NV2, seedK: number): NF {
+  const a = pnoise(uvN.mul(vec2(48, 3)), 48, seedK + 401, 3);
+  const b = pnoise(uvN.mul(vec2(96, 6)), 96, seedK + 403, 6);
+  return a.add(b.mul(0.5)).div(1.5).sub(0.5);
+}
 
 // ---------------------------------------------------------------------------
 // 高度场 + 烘焙
@@ -217,12 +263,12 @@ function barkHeight(p: BarkRecipe, uvN: NV2, seedK: number): NF {
     );
   }
   if (p.rings > 0) {
-    // 竹节:沿 v 的窄环形凹槽
-    const ringT = q.y.mul(p.rings).fract();
-    const nearRing = ringT.sub(0.5).abs().mul(2); // 环中心为 1
-    const groove = nearRing.smoothstep(0.9, 0.985);
-    h = h.mul(float(1).sub(groove.mul(0.85)));
+    // 竹节:节内环抬高、箨环细槽下凹
+    const { scar, intra } = nodeBands(uvN.y.mul(p.rings));
+    h = h.add(intra.mul(0.4)).sub(scar.mul(0.3));
   }
+  if (p.pits) h = h.sub(pitMask(uvN, seedK).mul(0.15 * p.pits));
+  if (p.streaks) h = h.add(streakField(uvN, seedK).mul(0.05 * p.streaks));
   h = h.add(pfbm(uvN.mul(24), 3, 24, seedK + 91).sub(0.5).mul(p.micro));
   return h;
 }
@@ -305,6 +351,18 @@ export async function bakeBarkTextures(
     const lw = pworley(uvN.mul(vec2(5, 24)), new Vector2(5, 24), seedK + 77);
     const dash = float(1).sub(lw.f1.smoothstep(0.2, 0.42));
     albedo = mix(albedo, vec3(0.045, 0.04, 0.038), dash.mul(0.85)) as unknown as NV3;
+  }
+  if (p.rings > 0) {
+    // 竹节:节内环偏灰白(箨环显著),箨环线压暗
+    const { scar, intra } = nodeBands(uvN.y.mul(p.rings));
+    albedo = mix(albedo, vec3(0.6, 0.58, 0.46), intra.mul(0.55)) as unknown as NV3;
+    albedo = albedo.mul(float(1).sub(scar.mul(0.55))) as unknown as NV3;
+  }
+  if (p.pits) {
+    albedo = albedo.mul(float(1).sub(pitMask(uvN, seedK).mul(0.45 * p.pits))) as unknown as NV3;
+  }
+  if (p.streaks) {
+    albedo = albedo.mul(streakField(uvN, seedK).mul(0.14 * p.streaks).add(1)) as unknown as NV3;
   }
   const rough = float(p.roughBase).add(h.sub(0.5).mul(p.roughVar * 2));
 

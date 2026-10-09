@@ -19,6 +19,18 @@ export const ROUTE_EXPERIENCES: readonly RouteExperienceConfig[] = [
         labelKey: "routes.silkRoad.stops.xian",
         coord: { lat: 34.34, lon: 108.94 },
         coverImage: "/images/routes/stops/xian.jpg",
+        landmarks: [
+          {
+            id: "bell-tower",
+            titleKey: "routes.pickables.landmarks.bellTower",
+            coord: { lat: 34.343, lon: 108.942 },
+          },
+          {
+            id: "city-wall",
+            titleKey: "routes.pickables.landmarks.xianCityWall",
+            coord: { lat: 34.336, lon: 108.935 },
+          },
+        ],
       },
       { id: "lanzhou", labelKey: "routes.silkRoad.stops.lanzhou", coord: { lat: 36.06, lon: 103.83 } },
       { id: "dunhuang", labelKey: "routes.silkRoad.stops.dunhuang", coord: { lat: 40.14, lon: 94.66 } },
@@ -38,11 +50,39 @@ export const ROUTE_EXPERIENCES: readonly RouteExperienceConfig[] = [
         labelKey: "routes.sichuanTibet.stops.chengdu",
         coord: { lat: 30.57, lon: 104.07 },
         coverImage: "/images/routes/stops/chengdu.jpg",
+        landmarks: [
+          {
+            id: "tianfu-square",
+            titleKey: "routes.pickables.landmarks.tianfuSquare",
+            coord: { lat: 30.574, lon: 104.066 },
+          },
+          {
+            id: "kuanzhai-alley",
+            titleKey: "routes.pickables.landmarks.kuanzhaiAlley",
+            coord: { lat: 30.567, lon: 104.075 },
+          },
+        ],
       },
       { id: "kangding", labelKey: "routes.sichuanTibet.stops.kangding", coord: { lat: 30.05, lon: 101.96 } },
       { id: "litang", labelKey: "routes.sichuanTibet.stops.litang", coord: { lat: 30.0, lon: 100.27 } },
       { id: "nyingchi", labelKey: "routes.sichuanTibet.stops.nyingchi", coord: { lat: 29.65, lon: 94.36 } },
-      { id: "lhasa", labelKey: "routes.sichuanTibet.stops.lhasa", coord: { lat: 29.65, lon: 91.14 } },
+      {
+        id: "lhasa",
+        labelKey: "routes.sichuanTibet.stops.lhasa",
+        coord: { lat: 29.65, lon: 91.14 },
+        landmarks: [
+          {
+            id: "potala",
+            titleKey: "routes.pickables.landmarks.potala",
+            coord: { lat: 29.653, lon: 91.137 },
+          },
+          {
+            id: "jokhang",
+            titleKey: "routes.pickables.landmarks.jokhang",
+            coord: { lat: 29.647, lon: 91.145 },
+          },
+        ],
+      },
     ],
   },
   {
@@ -59,7 +99,18 @@ export const ROUTE_EXPERIENCES: readonly RouteExperienceConfig[] = [
         coverImage: "/images/routes/stops/barcelona.jpg",
       },
       { id: "marseille", labelKey: "routes.mediterranean.stops.marseille", coord: { lat: 43.3, lon: 5.37 } },
-      { id: "rome", labelKey: "routes.mediterranean.stops.rome", coord: { lat: 41.9, lon: 12.5 } },
+      {
+        id: "rome",
+        labelKey: "routes.mediterranean.stops.rome",
+        coord: { lat: 41.9, lon: 12.5 },
+        landmarks: [
+          {
+            id: "colosseum",
+            titleKey: "routes.pickables.landmarks.colosseum",
+            coord: { lat: 41.892, lon: 12.492 },
+          },
+        ],
+      },
       { id: "athens", labelKey: "routes.mediterranean.stops.athens", coord: { lat: 37.98, lon: 23.73 } },
       { id: "istanbul", labelKey: "routes.mediterranean.stops.istanbul", coord: { lat: 41.01, lon: 28.98 } },
     ],
