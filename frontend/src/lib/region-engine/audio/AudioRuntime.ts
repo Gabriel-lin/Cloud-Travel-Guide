@@ -97,6 +97,11 @@ export class AudioRuntime {
     node.gain.linearRampToValueAtTime(Math.min(Math.max(value, 0), 1.5), now + 0.05);
   }
 
+  /** 总线节点:自管声源(如模型片段里的鸣唱)接入后与鸟鸣同受音量和水下滤波。 */
+  busNode(bus: Exclude<AudioBusId, "master">): AudioNode | null {
+    return bus === "birds" ? this.birds : bus === "ambience" ? this.ambience : this.ui;
+  }
+
   setUnderwater(on: boolean, depth = 0): void {
     if (!this.underwater || !this.ctx) return;
     const hz = on ? Math.max(380, 920 - Math.min(depth, 12) * 40) : 18000;

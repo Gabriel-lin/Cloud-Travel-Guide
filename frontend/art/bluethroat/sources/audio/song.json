@@ -1,0 +1,13 @@
+{
+  "xcId": "XC1168600",
+  "recordist": "Stanislas Wroza",
+  "license": "http://creativecommons.org/licenses/by-nc/4.0/",
+  "sourceUrl": "https://data.biodiversitydata.nl/xeno-canto/observation/XC1168600",
+  "audioUrl": "https://xeno-canto.org/sounds/uploaded/SDPCHKOHRH/XC1168600-2026-06-01-08h41-70.1046%2C-29.8274-Vadso-Gorgebleue-%C3%A0-miroir-ssp%3Dsvecica-chant-subsong-B.wav",
+  "scientific": "Luscinia svecica svecica",
+  "file": "XC1168600-excerpt-50s.wav",
+  "fileStart": 50.0,
+  "fileNote": "seconds 50-58 of the recording, mono, peak-normalised (all later steps normalise again)",
+  "phrase": [2.8, 5.64],
+  "web": "/audio/birds/bluethroat/song-01.wav"
+}

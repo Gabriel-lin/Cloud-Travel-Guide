@@ -1238,6 +1238,19 @@
       "sourceUrl": "https://data.biodiversitydata.nl/xeno-canto/observation/XC674463",
       "scientific": "Bubo scandiacus",
       "dataset": "GBIF/Xeno-canto 10.15468/qv0ksn"
+    },
+    {
+      "speciesId": "bluethroat",
+      "kind": "song",
+      "src": "/audio/birds/bluethroat/song-01.wav",
+      "duration": 3.26,
+      "xcId": "XC1168600",
+      "recordist": "Stanislas Wroza",
+      "license": "http://creativecommons.org/licenses/by-nc/4.0/",
+      "sourceUrl": "https://data.biodiversitydata.nl/xeno-canto/observation/XC1168600",
+      "scientific": "Luscinia svecica svecica",
+      "dataset": "GBIF/Xeno-canto 10.15468/qv0ksn",
+      "note": "Phrase from 52.68 s of the recording (band-passed, denoised); sung in the WalkSing clip of /models/bluethroat.glb"
     }
   ]
 }
