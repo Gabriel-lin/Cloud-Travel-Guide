@@ -56,7 +56,7 @@
     "scene": {
       "title": "3D scene",
       "rendererError": "3D renderer failed to start. Please make sure your browser supports WebGPU or WebGL2.",
-      "controls": "Click to enter · V walk/fly · WASD move · Space jump · Shift sprint",
+      "controls": "Click empty ground to enter (mouse look) · click entities to inspect · V walk/fly · WASD move · Space jump · Shift sprint",
       "boot": {
         "idle": "Initializing",
         "fetchingDem": "Downloading elevation data",
@@ -78,6 +78,76 @@
       "title": "Route overview",
       "placeholder": "2D route map",
       "stops": "{count} stops"
+    },
+    "inspect": {
+      "close": "Close picker",
+      "modelPlaceholder": "A 3D model will appear here. Playback unlocks once a glTF is configured.",
+      "modelPath": "Model path: {path}",
+      "comingSoon": "Coming soon",
+      "animation": "Animation",
+      "play": "Play",
+      "pause": "Pause",
+      "viewGizmo": "Drag to orbit, click an axis to align, click empty space to reset",
+      "axis": {
+        "front": "Front Y",
+        "back": "Back",
+        "left": "Left",
+        "right": "Right X",
+        "top": "Top Z",
+        "bottom": "Bottom"
+      },
+      "kind": {
+        "forest": "Forest",
+        "bamboo": "Bamboo grove",
+        "shrub": "Shrubs",
+        "firefly": "Fireflies",
+        "bird": "Birds",
+        "fish": "Fish",
+        "landmark": "Landmark"
+      }
+    }
+  },
+  "pickables": {
+    "forest": "Forest",
+    "bamboo": "Bamboo grove",
+    "shrub": "Shrubs",
+    "firefly": "Firefly swarm",
+    "birds": {
+      "sparrow": "Sparrow",
+      "swallow": "Swallow",
+      "pigeon": "Pigeon",
+      "magpie": "Magpie",
+      "crow": "Crow",
+      "mallard": "Mallard",
+      "egret": "Egret",
+      "gull": "Gull",
+      "goose": "Goose",
+      "kestrel": "Kestrel",
+      "eagleOwl": "Eagle owl",
+      "snowyOwl": "Snowy owl"
+    },
+    "fish": {
+      "grassCarp": "Grass carp",
+      "blackCarp": "Black carp",
+      "silverCarp": "Silver carp",
+      "bigheadCarp": "Bighead carp",
+      "commonCarp": "Common carp",
+      "crucian": "Crucian carp",
+      "bass": "Bass",
+      "koi": "Koi",
+      "bream": "Bream",
+      "skygazer": "Skygazer",
+      "mandarin": "Mandarin fish",
+      "yellowCatfish": "Yellow catfish"
+    },
+    "landmarks": {
+      "tianfuSquare": "Tianfu Square",
+      "kuanzhaiAlley": "Kuanzhai Alley",
+      "bellTower": "Bell Tower",
+      "xianCityWall": "Xi'an City Wall",
+      "potala": "Potala Palace",
+      "jokhang": "Jokhang Temple",
+      "colosseum": "Colosseum"
     }
   }
 }

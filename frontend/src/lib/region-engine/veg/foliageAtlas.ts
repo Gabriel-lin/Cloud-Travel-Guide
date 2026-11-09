@@ -25,6 +25,7 @@ import {
 import { MeshBasicNodeMaterial, type Renderer } from "three/webgpu";
 import { abs, attribute, float, smoothstep, uv } from "three/tsl";
 import type { NV4 } from "../gpu/tsl-types";
+import { buildBambooSprayTile } from "./bamboo";
 import type { SpeciesParams } from "./species";
 import { Grower, buildLeaf, buildNeedleSpray, leafRgb } from "./treeBuilder";
 
@@ -46,6 +47,11 @@ function buildTwigTile(
 ): void {
   const fol = sp.foliage;
   const half = 0.46;
+  if (sp.culms) {
+    // 竹:披针叶小枝(个/介字形叶扇)
+    buildBambooSprayTile(g, sp, rng, cx, cy);
+    return;
+  }
   if (fol.kind === "needleSpray") {
     const brush = fol.leaf.brush > 0.5;
     // 主簇由 tile 底部向 +y 生长;针叶尺寸换算到 tile 单位
@@ -184,12 +190,14 @@ export async function captureFoliageAtlas(
     buildTwigTile(g, sp, rng, (v % 2) - 0.5, Math.floor(v / 2) - 0.5);
   }
   // 主脉/梢端明暗烘入 albedo;读回后 CPU 做 sqrt 编码(LAAS 图集约定)
+  // 主脉中心亮度倍数:默认 0.18(深色中线);竹等取 >1 为浅色主脉
+  const midribK = sp.foliage.leaf.midrib ?? 0.18;
   const mat = new MeshBasicNodeMaterial();
   const col = (attribute("color") as unknown as NV4).xyz;
   const uvo = uv();
   const midrib = smoothstep(float(0.02), float(0.09), abs(uvo.x.sub(0.5)));
   const tip = smoothstep(float(0.5), float(0.96), uvo.y);
-  const vein = midrib.mul(0.82).add(0.18);
+  const vein = midrib.mul(1 - midribK).add(midribK);
   const albedo = col.mul(vein).mul(tip.mul(0.22).add(0.78));
   mat.colorNode = albedo;
   mat.side = 2; // DoubleSide

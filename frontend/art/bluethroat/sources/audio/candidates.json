@@ -1,0 +1,90 @@
+﻿[
+    {
+        "xc":  "XC1138126",
+        "who":  "Radek Grochowski",
+        "lic":  "by-nc/4.0",
+        "beh":  "song",
+        "sex":  "Male",
+        "ssp":  "svecica",
+        "country":  "CZ",
+        "year":  2026,
+        "url":  "https://xeno-canto.org/sounds/uploaded/CHZCZGQRZW/XC1138126-260525_0563.mp3"
+    },
+    {
+        "xc":  "XC1147010",
+        "who":  "Jessica Peruzzo",
+        "lic":  "by-nc/4.0",
+        "beh":  "song",
+        "sex":  "Male",
+        "ssp":  "svecica",
+        "country":  "NO",
+        "year":  2026,
+        "url":  "https://xeno-canto.org/sounds/uploaded/VMQQRCTSHV/XC1147010-26-mag-alle-ore-00-40-pettazz.mp3"
+    },
+    {
+        "xc":  "XC1168406",
+        "who":  "Stanislas Wroza",
+        "lic":  "by-nc/4.0",
+        "beh":  "song",
+        "sex":  null,
+        "ssp":  "svecica",
+        "country":  "FI",
+        "year":  2026,
+        "url":  "https://xeno-canto.org/sounds/uploaded/SDPCHKOHRH/XC1168406-2026-05-29-11h24-69.4387%2C-66.1196-Karigasniemi-Gorgebleue-%C3%A0-miroir-ssp%3Dsvecica-chant-B.wav"
+    },
+    {
+        "xc":  "XC1168402",
+        "who":  "Stanislas Wroza",
+        "lic":  "by-nc/4.0",
+        "beh":  "song",
+        "sex":  null,
+        "ssp":  "svecica",
+        "country":  "FI",
+        "year":  2026,
+        "url":  "https://xeno-canto.org/sounds/uploaded/SDPCHKOHRH/XC1168402-2026-05-29-11h11-69.4387%2C-66.1196-Karigasniemi-Gorgebleue-%C3%A0-miroir-ssp%3Dsvecica-chant-A.wav"
+    },
+    {
+        "xc":  "XC1168398",
+        "who":  "Stanislas Wroza",
+        "lic":  "by-nc/4.0",
+        "beh":  "song",
+        "sex":  null,
+        "ssp":  "svecica",
+        "country":  "FI",
+        "year":  2026,
+        "url":  "https://xeno-canto.org/sounds/uploaded/SDPCHKOHRH/XC1168398-2026-05-29-10h12-69.4387%2C-66.1196-Karigasniemi-Gorgebleue-%C3%A0-miroir-ssp%3Dsvecica-chant-A.wav"
+    },
+    {
+        "xc":  "XC1168403",
+        "who":  "Stanislas Wroza",
+        "lic":  "by-nc/4.0",
+        "beh":  "song",
+        "sex":  null,
+        "ssp":  "svecica",
+        "country":  "FI",
+        "year":  2026,
+        "url":  "https://xeno-canto.org/sounds/uploaded/SDPCHKOHRH/XC1168403-2026-05-29-11h16-69.4387%2C-66.1196-Karigasniemi-Gorgebleue-%C3%A0-miroir-ssp%3Dsvecica-chant-A.wav"
+    },
+    {
+        "xc":  "XC1168407",
+        "who":  "Stanislas Wroza",
+        "lic":  "by-nc/4.0",
+        "beh":  "song",
+        "sex":  null,
+        "ssp":  "svecica",
+        "country":  "FI",
+        "year":  2026,
+        "url":  "https://xeno-canto.org/sounds/uploaded/SDPCHKOHRH/XC1168407-2026-05-29-11h29-69.4387%2C-66.1196-Karigasniemi-Gorgebleue-%C3%A0-miroir-ssp%3Dsvecica-chant-HD-A.wav"
+    },
+    {
+        "xc":  "XC1168600",
+        "who":  "Stanislas Wroza",
+        "lic":  "by-nc/4.0",
+        "beh":  "song, subsong",
+        "sex":  null,
+        "ssp":  "svecica",
+        "country":  "FI",
+        "year":  2026,
+        "url":  "https://xeno-canto.org/sounds/uploaded/SDPCHKOHRH/XC1168600-2026-06-01-08h41-70.1046%2C-29.8274-Vadso-Gorgebleue-%C3%A0-miroir-ssp%3Dsvecica-chant-subsong-B.wav"
+    }
+]

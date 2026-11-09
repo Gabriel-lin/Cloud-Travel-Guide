@@ -17,6 +17,15 @@ export type RouteToolbarState = {
 };
 
 /** 路线上的一个站点（场景节点）。 */
+export type RouteLandmark = {
+  id: string;
+  /** i18n 文案 key，例如 `routes.pickables.landmarks.tianfuSquare`。 */
+  titleKey: string;
+  /** 真实地理坐标,须落在站点 4 km 场景范围内。 */
+  coord: { lat: number; lon: number };
+  model?: { src?: string; clip?: string; camera?: "front" | "orbit" };
+};
+
 export type RouteStop = {
   id: string;
   /** i18n 文案 key，例如 `routes.silkRoad.stops.xian`。 */
@@ -25,6 +34,8 @@ export type RouteStop = {
   coord: { lat: number; lon: number };
   /** 站点风景图；推荐卡片使用路线起点（stops[0]）的配图。 */
   coverImage?: string;
+  /** 可拾取的标志性建筑 / 景点(按地点配置)。 */
+  landmarks?: RouteLandmark[];
 };
 
 /** 单条推荐路线的体验配置（驱动统一的子页面组件）。 */

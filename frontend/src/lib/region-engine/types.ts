@@ -83,11 +83,11 @@ export type RegionMasks = {
   water: Float32Array;
   /** 河道:0..1 河床剖面(1=河中心) */
   riverProfile: Float32Array;
-  /** 流向(单位向量),非河道处为 0 */
+  /** 流向(单位向量),河道外经外扩传播,远离水系处为 0 */
   flowX: Float32Array;
   flowZ: Float32Array;
-  /** 逐河 0..1 哈希(深度/流速扰动) */
-  riverHash: Float32Array;
+  /** 河中心刻蚀深度(米,已含逐河哈希 × 河宽缩放;非河道处为 0) */
+  riverDepth: Float32Array;
   forest: Float32Array;
   farmland: Float32Array;
   urban: Float32Array;

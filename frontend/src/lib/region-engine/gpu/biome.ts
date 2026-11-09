@@ -40,6 +40,23 @@ export type BiomeMaskBuffers = {
   grass: Float32Array;
 };
 
+function packMask4(
+  a: Float32Array,
+  b: Float32Array,
+  c: Float32Array,
+  d: Float32Array,
+  n: number,
+): Float32Array {
+  const out = new Float32Array(n * 4);
+  for (let i = 0; i < n; i++) {
+    out[i * 4] = a[i] as number;
+    out[i * 4 + 1] = b[i] as number;
+    out[i * 4 + 2] = c[i] as number;
+    out[i * 4 + 3] = d[i] as number;
+  }
+  return out;
+}
+
 export async function runBiomeClassify(
   renderer: Renderer,
   height: FloatBuffer,
@@ -52,13 +69,16 @@ export async function runBiomeClassify(
 ): Promise<BiomeResult> {
   const N = res * res;
   const texel = size / res;
-  const forestM = instancedArray(masks.forest, "float");
-  const farmM = instancedArray(masks.farmland, "float");
-  const urbanM = instancedArray(masks.urban, "float");
-  const sandM = instancedArray(masks.sand, "float");
-  const wetM = instancedArray(masks.wetland, "float");
-  const scrubM = instancedArray(masks.scrub, "float");
-  const grassM = instancedArray(masks.grass, "float");
+  // 7 张遮罩打成 2 个 vec4,整 kernel storage buffer 从 12 降到 7
+  // (Windows 默认 maxStorageBuffersPerShaderStage = 8)
+  const maskA = instancedArray(
+    packMask4(masks.forest, masks.farmland, masks.urban, masks.sand, N),
+    "vec4",
+  );
+  const maskB = instancedArray(
+    packMask4(masks.wetland, masks.scrub, masks.grass, new Float32Array(N), N),
+    "vec4",
+  );
   const biomeId = instancedArray(N, "float");
   const snow = instancedArray(N, "float");
   const vegDensity = instancedArray(N, "float");
@@ -106,13 +126,15 @@ export async function runBiomeClassify(
 
     // 遮罩读数(叠加过渡带抖动,边缘犬牙交错)
     const edge = jitter.mul(0.22);
-    const fFor = clamp(forestM.element(i).add(edge), 0, 1);
-    const fFarm = clamp(farmM.element(i).add(edge.mul(0.4)), 0, 1);
-    const fUrban = clamp(urbanM.element(i), 0, 1);
-    const fSand = clamp(sandM.element(i).add(edge.mul(0.5)), 0, 1);
-    const fWet = clamp(wetM.element(i), 0, 1);
-    const fScrub = clamp(scrubM.element(i), 0, 1);
-    const fGrass = clamp(grassM.element(i).add(edge.mul(0.6)), 0, 1);
+    const ma = maskA.element(i);
+    const mb = maskB.element(i);
+    const fFor = clamp(ma.x.add(edge), 0, 1);
+    const fFarm = clamp(ma.y.add(edge.mul(0.4)), 0, 1);
+    const fUrban = clamp(ma.z, 0, 1);
+    const fSand = clamp(ma.w.add(edge.mul(0.5)), 0, 1);
+    const fWet = clamp(mb.x, 0, 1);
+    const fScrub = clamp(mb.y, 0, 1);
+    const fGrass = clamp(mb.z.add(edge.mul(0.6)), 0, 1);
 
     // 干旱沙漠(无遮罩数据时的气候推断):高温 + 极低湿度
     const arid = smoothstep(0.12, 0.03, moist).mul(smoothstep(14, 24, temp));

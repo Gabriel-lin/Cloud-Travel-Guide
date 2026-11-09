@@ -65,6 +65,15 @@ export type LeafShape = {
   needleCount: number;
   /** 排布:0=平面梳,1=径向刷 */
   brush: number;
+  /** 条带行数(默认 2;披针叶需 ≥5 才能表达渐尖轮廓) */
+  rows?: number;
+  /**
+   * 最宽处沿叶长的位置(0..1)。给定时启用披针形轮廓:基部圆钝、向先端
+   * 渐尖收到 0 宽;缺省沿用对称 sin^shapePow 轮廓。
+   */
+  peak?: number;
+  /** 图集烘焙时主脉中心亮度倍数(默认 0.18 = 深色中线;>1 为浅色主脉) */
+  midrib?: number;
 };
 
 export type FoliageParams = {
@@ -116,8 +125,15 @@ export type SpeciesParams = {
   bark: [number, number, number];
   /** 程序化树皮风格(对齐 LAAS BARK_TABLE) */
   barkStyle: BarkStyleKey;
-  /** 竹类专用:一丛 culm(竹竿)数量区间 —— 存在时走专用生成路径 */
+  /** 竹类专用:一丛 culm(竹竿)数量区间 —— 存在时走专用生成路径(veg/bamboo.ts) */
   culms?: [number, number];
+  /** 竹类专用:秆基半径区间(米,绝对值;慈竹径 3–6 cm) */
+  culmRadius?: [number, number];
+  /**
+   * bark 材质是否把顶点色 rgb 当作 tint 乘进贴图反照率(默认关)。
+   * 竹用它表达同丛不同秆龄(深绿 → 黄褐)与枯黄箨鞘/竹笋。
+   */
+  barkVertexTint?: boolean;
 };
 
 export type TreeSpeciesId =
@@ -129,36 +145,53 @@ export type TreeSpeciesId =
   | "saxaul";
 
 export const TREE_SPECIES: Record<TreeSpeciesId, SpeciesParams> = {
-  /** 竹:丛生竹竿 + 顶部下垂长叶(专用 culm 路径) */
+  /**
+   * 竹(慈竹 Bambusa emeiensis,成都平原林盘竹):丛生,秆高 5–10 m、径 3–6 cm、
+   * 约 30 节,上部弧形外弯、梢端下垂;自秆中部节起发细枝,叶窄披针形
+   * 10–30 × 1–3 cm 呈放射状叶扇。专用生成路径见 veg/bamboo.ts,
+   * levels[0] 仅提供秆的游走/下垂参数,foliage.anchorLevel 固定为 1(枝)。
+   */
   bamboo: {
     id: "bamboo",
-    height: [7, 12],
-    trunkRadiusK: 0.008,
+    height: [6, 10],
+    trunkRadiusK: 0.0035,
     crown: "column",
     asym: 0.1,
-    culms: [6, 10],
+    culms: [8, 12],
+    culmRadius: [0.02, 0.032],
+    barkVertexTint: true,
     levels: [
       {
         density: 0, whorl: 0, childStart: 0, childEnd: 0,
         angleBase: 0, angleTip: 0, lenRatio: 0, lenJitter: 0, radRatio: 0,
-        segs: 7, wander: 0.025, gravitropism: 0.05, droop: 0.16, tipCurl: 0,
+        segs: 7, wander: 0.012, gravitropism: 0.05, droop: 0.9, tipCurl: 0,
         taper: 0.3,
+      },
+      {
+        density: 0, whorl: 0, childStart: 0.42, childEnd: 0.98,
+        angleBase: 1.2, angleTip: 1.45, lenRatio: 0, lenJitter: 0.25, radRatio: 0,
+        segs: 4, wander: 0.05, gravitropism: 0, droop: 0.55, tipCurl: 0,
+        taper: 0.8,
       },
     ],
     foliage: {
       kind: "leafCluster",
-      anchorLevel: 0,
-      spacing: 0.13,
+      anchorLevel: 1,
+      spacing: 0.26,
       tStart: 0.4,
-      scale: [0.55, 0.85],
-      tilt: 1.15,
+      scale: [0.5, 0.75],
+      tilt: 0.9,
       clusterSize: [5, 8],
-      normalBend: 0.35,
-      color: [0.3, 0.46, 0.16],
-      hueVar: 0.3,
-      anchorTarget: 600,
-      card: { mode: "cross", sizeK: 1.5 },
-      leaf: { len: 0.28, width: 0.03, shapePow: 1.6, fold: 0.35, curl: 0.5, needleCount: 0, brush: 0 },
+      normalBend: 0.25,
+      color: [0.28, 0.45, 0.16],
+      hueVar: 0.22,
+      // 10–12 秆 × ~16 分枝节 × (1.4 枝 × 3–4 锚点 + 1) ≈ 950–1150,预算取整避免抽稀放大
+      anchorTarget: 1200,
+      card: { mode: "cross", sizeK: 1.35 },
+      leaf: {
+        len: 0.2, width: 0.011, shapePow: 1, fold: 0.15, curl: 0.3, needleCount: 0, brush: 0,
+        rows: 6, peak: 0.32, midrib: 1.25,
+      },
     },
     flare: { amp: 0, height: 0.3, lobes: 0 },
     bark: [0.4, 0.47, 0.24],

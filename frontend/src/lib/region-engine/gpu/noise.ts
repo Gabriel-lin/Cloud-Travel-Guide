@@ -12,6 +12,7 @@ import {
   mx_fractal_noise_float,
   mx_noise_float,
   sin,
+  vec2,
   vec3,
 } from "three/tsl";
 import type { NF, NV2, NV3 } from "./tsl-types";
@@ -23,6 +24,17 @@ export function hash2(p: NV2, seed = 0): NF {
     .add(p.y.mul(311.7))
     .add(seed * 17.17);
   return fract(sin(s).mul(43758.5453));
+}
+
+/**
+ * 整数格哈希:先把大坐标折进 [0,1),避免 sin(大整数) 精度崩溃打出棋盘纹。
+ */
+export function hashCell(i: NV2, seed = 0): NF {
+  const p = vec2(
+    fract(i.x.mul(0.1031).add(i.y.mul(0.0773)).add(seed * 0.018)),
+    fract(i.y.mul(0.0973).add(i.x.mul(0.0541)).add(seed * 0.029)),
+  );
+  return hash2(p, seed);
 }
 
 /** 标准 fbm(octaves 编译期常量) */

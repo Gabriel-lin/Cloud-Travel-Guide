@@ -26,7 +26,11 @@
     "precommit": "lint-staged && npm run typecheck",
     "lint": "eslint . --no-warn-ignored",
     "typecheck": "next typegen && tsc --noEmit && tsc -p tsconfig.electron.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "art:bluethroat": "node art/bluethroat/tools/run_blender.mjs",
+    "art:bluethroat:verify": "node art/bluethroat/tools/verify.mjs",
+    "art:sparrow": "node art/sparrow/tools/run_blender.mjs",
+    "art:sparrow:verify": "node art/sparrow/tools/verify.mjs"
   },
   "lint-staged": {
     "*.{js,jsx,ts,tsx,mjs,cjs}": "eslint --fix --max-warnings=0 --no-warn-ignored"
@@ -81,6 +85,7 @@
     "electron-builder": "^26.8.1",
     "eslint": "^9.28.0",
     "eslint-config-next": "^16.2.6",
+    "gltf-validator": "2.0.0-dev.3.10",
     "husky": "^9.1.7",
     "jsdom": "^26.1.0",
     "lint-staged": "^17.0.7",
