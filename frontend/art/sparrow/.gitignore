@@ -1,0 +1,3 @@
+# Blender save backups / interrupted saves
+*.blend
+# build/ (intermediate data, debug images, previews) is ignored repo-wide via **/build/

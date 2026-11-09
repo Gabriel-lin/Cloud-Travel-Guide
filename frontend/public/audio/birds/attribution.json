@@ -1251,6 +1251,19 @@
       "scientific": "Luscinia svecica svecica",
       "dataset": "GBIF/Xeno-canto 10.15468/qv0ksn",
       "note": "Phrase from 52.68 s of the recording (band-passed, denoised); sung in the WalkSing clip of /models/bluethroat.glb"
+    },
+    {
+      "speciesId": "sparrow",
+      "kind": "call",
+      "src": "/audio/birds/sparrow/tree-sparrow-call-01.wav",
+      "duration": 2.22,
+      "xcId": "XC776834",
+      "recordist": "Sonothèque ADVL",
+      "license": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "sourceUrl": "https://data.biodiversitydata.nl/xeno-canto/observation/XC776834",
+      "scientific": "Passer montanus",
+      "dataset": "GBIF/Xeno-canto 10.15468/qv0ksn",
+      "note": "Four-call phrase from 27.38 s of the recording (band-passed, denoised); called in the Call clip of /models/sparrow.glb"
     }
   ]
 }

@@ -1,0 +1,14 @@
+{
+  "xcId": "XC776834",
+  "recordist": "Sonothèque ADVL",
+  "license": "http://creativecommons.org/publicdomain/zero/1.0/",
+  "sourceUrl": "https://data.biodiversitydata.nl/xeno-canto/observation/XC776834",
+  "audioUrl": "https://xeno-canto.org/sounds/uploaded/BJAXFFKOML/XC776834-Moineau-Friquet-ad-2706-14h.mp3",
+  "scientific": "Passer montanus",
+  "kind": "call",
+  "file": "XC776834-excerpt-25s.wav",
+  "fileStart": 25.0,
+  "fileNote": "seconds 25-31 of the recording (adult calls near the nest, France), mono 44.1 kHz, peak-normalised",
+  "phrase": [2.38, 4.18],
+  "web": "/audio/birds/sparrow/tree-sparrow-call-01.wav"
+}

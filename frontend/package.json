@@ -28,7 +28,9 @@
     "typecheck": "next typegen && tsc --noEmit && tsc -p tsconfig.electron.json --noEmit",
     "test": "vitest run",
     "art:bluethroat": "node art/bluethroat/tools/run_blender.mjs",
-    "art:bluethroat:verify": "node art/bluethroat/tools/verify.mjs"
+    "art:bluethroat:verify": "node art/bluethroat/tools/verify.mjs",
+    "art:sparrow": "node art/sparrow/tools/run_blender.mjs",
+    "art:sparrow:verify": "node art/sparrow/tools/verify.mjs"
   },
   "lint-staged": {
     "*.{js,jsx,ts,tsx,mjs,cjs}": "eslint --fix --max-warnings=0 --no-warn-ignored"
